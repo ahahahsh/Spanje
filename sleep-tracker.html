@@ -135,6 +135,7 @@
   </header>
 
   <!-- ───────────── Sample-data banner ───────────── -->
+  <p id="sync-status" class="flex items-center gap-2 text-xs text-muted -mt-2 mb-4 min-w-0"></p>
   <div id="sync-banner" class="hidden"></div>
   <div id="sample-banner" class="hidden mb-5 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
     <div class="flex items-start gap-3 flex-1">
@@ -487,7 +488,7 @@ function load() {
       const s = JSON.parse(raw);
       state = { nights: (Array.isArray(s.nights) ? s.nights : []).map(cleanNight).filter(Boolean),
                 settings: { ...DEFAULTS, ...(s.settings || {}) }, isSample: !!s.isSample,
-                pledges: s.pledges && typeof s.pledges === 'object' ? s.pledges : {} };
+                pledges: s.pledges && typeof s.pledges === 'object' ? s.pledges : {}, lastSync: s.lastSync || null };
       if (!Array.isArray(state.settings.tags)) state.settings.tags = [...DEFAULTS.tags];
       // One-time upgrade from the version before the ladder: the old default wake time was 07:00
       if (!(s.settings || {}).ladder && state.settings.wakeTime === '07:00') state.settings.wakeTime = DEFAULTS.wakeTime;
@@ -1665,9 +1666,20 @@ function importFromLink() {
     mergeNights(res.nights, false);
     save();
     const ds = [...new Set(res.nights.map(n => n.date))].sort(), rows = text.split(/\r?\n/).length - 1;
-    return { ok: true, msg: `Synced ${ds.length} night${ds.length === 1 ? '' : 's'} from Apple Health · latest ${fmtDateLong(ds[ds.length - 1])}`,
-             detail: `${rows} sleep segments received.` };
+    // Time span of the raw segments, to spot a shortcut that only sends old data (e.g. a Limit left on)
+    let segFrom = Infinity, segTo = -Infinity;
+    try { const recs = csvToObjects(text), k = Object.keys(recs[0] || {});
+      recs.forEach(r => { const a = parseDate(r[k[0]]), b = parseDate(r[k[1]]); if (isFinite(a)) segFrom = Math.min(segFrom, a); if (isFinite(b)) segTo = Math.max(segTo, b); }); } catch (e) { /* range is optional */ }
+    const span = isFinite(segFrom) ? ` from ${fmtDateLong(dateKey(new Date(segFrom)))} ${fmtTime(segFrom)} to ${fmtDateLong(dateKey(new Date(segTo)))} ${fmtTime(segTo)}` : '';
+    const stale = isFinite(segTo) && Date.now() - segTo > 36 * 3600000;
+    const r = { ok: true, msg: `Synced ${ds.length} night${ds.length === 1 ? '' : 's'} from Apple Health · newest ${fmtDateLong(ds[ds.length - 1])}`,
+      detail: `Received ${rows} sleep segments${span}.` + (stale ? ` The newest data is more than a day old. Either your watch hasn't synced last night to Health yet, or in Find Health Samples "Limit" is switched on and cuts off the newest nights. Switch Limit off.` : ''),
+      warn: stale };
+    state.lastSync = { at: Date.now(), ok: true, nights: ds.length, newest: ds[ds.length - 1], segments: rows, segTo: isFinite(segTo) ? segTo : null };
+    save();
+    return r;
   } catch (e) {
+    state.lastSync = { at: Date.now(), ok: false, error: e.message }; save();
     return { ok: false, msg: 'Shortcut sync failed', detail: e.message, preview: text.split(/\r?\n/).slice(0, 4).map(l => l.slice(0, 140)).join('\n') };
   }
 }
@@ -1702,7 +1714,7 @@ function diagnoseLinkData(text) {
 /** Banner with the result of the last shortcut sync. Errors stay until dismissed; success hides after 8 s. */
 function showSync(r) {
   const el = $('#sync-banner'); if (!r || !el) return;
-  el.className = `mb-5 rounded-2xl border px-4 py-3 fade-up ${r.ok ? 'border-sage/30 bg-sage/10' : 'border-warn/40 bg-warn/10'}`;
+  el.className = `mb-5 rounded-2xl border px-4 py-3 fade-up ${r.ok && !r.warn ? 'border-sage/30 bg-sage/10' : 'border-warn/40 bg-warn/10'}`;
   el.innerHTML = `<div class="flex items-start gap-3">
       <span class="mt-1.5 w-2 h-2 rounded-full shrink-0 ${r.ok ? 'bg-sage' : 'bg-warn'}"></span>
       <div class="flex-1 min-w-0">
@@ -1713,7 +1725,21 @@ function showSync(r) {
       <button class="sync-close text-muted hover:text-crisp p-1 -m-1" aria-label="Dismiss"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>`;
   el.querySelector('.sync-close').onclick = () => el.classList.add('hidden');
-  clearTimeout(showSync.t); if (r.ok) showSync.t = setTimeout(() => el.classList.add('hidden'), 8000);
+  clearTimeout(showSync.t); if (r.ok && !r.warn) showSync.t = setTimeout(() => el.classList.add('hidden'), 15000);
+  renderSyncStatus();
+}
+
+/** Always-visible line: when the iPhone shortcut last reached this page, and what it brought. */
+function renderSyncStatus() {
+  const el = $('#sync-status'); if (!el) return;
+  const l = state.lastSync;
+  const ago = ms => { const m = Math.round((Date.now() - ms) / 60000);
+    return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  let dot = 'bg-white/20', text = 'iPhone sync: never. The shortcut hasn’t reached this page in this browser yet.';
+  if (l && l.ok) { const old = l.segTo && Date.now() - l.segTo > 36 * 3600000; dot = old ? 'bg-warn' : 'bg-sage';
+    text = `iPhone sync: ${ago(l.at)} · ${l.nights} night${l.nights === 1 ? '' : 's'} · newest ${fmtDateLong(l.newest)}${old ? ' (old data)' : ''}`; }
+  else if (l) { dot = 'bg-warn'; text = `iPhone sync: failed ${ago(l.at)} · ${l.error}`; }
+  el.innerHTML = `<i class="w-1.5 h-1.5 rounded-full shrink-0 ${dot}"></i><span class="truncate">${esc(text)}</span>`;
 }
 
 async function handleFiles(fileList) {
@@ -2350,6 +2376,7 @@ function init() {
 
   renderAll();
   if (linkSync) showSync(linkSync);
+  renderSyncStatus(); setInterval(renderSyncStatus, 60000);
   let ticks = 0;
   setInterval(() => { tickWindDown(); tickStreak(); if (++ticks % 20 === 0) renderCoach(); }, 1000);   // coach re-checks the situation every 20s
   // Fonts load after first paint; redraw canvas labels once Inter is ready
