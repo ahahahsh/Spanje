@@ -214,6 +214,7 @@
       <p class="text-[11px] uppercase tracking-wider text-muted font-semibold">Coach</p>
       <p id="coach-msg" class="text-base sm:text-lg font-medium leading-snug mt-0.5"></p>
       <p id="coach-more" class="hidden text-sm text-slate-300 leading-relaxed mt-2 max-w-3xl"></p>
+      <div id="coach-review" class="hidden mt-3 grid sm:grid-cols-2 gap-3 max-w-3xl"></div>
       <div id="coach-tip" class="hidden mt-3 rounded-xl bg-white/[0.03] border border-line px-3.5 py-3 max-w-3xl">
         <p id="coach-tip-title" class="text-[11px] uppercase tracking-wider font-semibold text-indigo-300"></p>
         <p id="coach-tip-body" class="text-sm text-slate-300 leading-relaxed mt-1"></p>
@@ -506,6 +507,9 @@ const mod1440 = m => ((m % 1440) + 1440) % 1440;
 const offsetAt = date => { const l = S().ladder; if (!l || !l.on || state.isSample || !l.hist || !l.hist.length) return 0;
   let o = l.hist[0][1]; for (const [from, off] of l.hist) if (from < date) o = off; return o; };
 const goalFor = n => S().goalMin - offsetAt(n.date);
+/** A successful night everywhere in the app (streak, green colour, full duration points): goal minus the buffer, i.e. 7h 45m. */
+const okFor = n => goalFor(n) - S().bufferMin;
+const okMin = () => S().goalMin - S().bufferMin;
 /** Target wake and bedtime as minutes-of-day. `bed` is the current step, `finalBed` the end goal. */
 const targets = () => { const wake = hmToMin(S().wakeTime), full = S().goalMin + S().latencyMin, off = ladderOffset();
   return { wake, off, inBed: full - off, bed: mod1440(wake - full + off), finalBed: mod1440(wake - full) }; };
@@ -666,7 +670,7 @@ const avg2 = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0);
 function sleepScore(n) {
   const s = S(), d = deviations(n);
   const awake = n.stages ? n.stages.awake : Math.max(0, Math.round((n.wake - n.bed) / 60000) - n.asleepMin - s.latencyMin);
-  const dur = Math.round(40 * clamp((n.asleepMin - (goalFor(n) - 180)) / 180, 0, 1));   // 0 at goal − 3h, full marks at goal
+  const dur = Math.round(40 * clamp((n.asleepMin - (okFor(n) - 180)) / 180, 0, 1));   // full marks at 7h 45m, 0 three hours below
   const bed = Math.round(20 * partScore(d.bed) / 100);                                  // full marks inside the ± window
   const wake = Math.round(20 * partScore(d.wake) / 100);                                // same rule for the wake-up time
   const intr = Math.round(20 * clamp(1 - (awake - 15) / 60, 0, 1));                     // full marks up to 15 min awake
@@ -1410,7 +1414,7 @@ function pickCoach() {
   const day = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / DAY);
   let text; try { text = best.msgs[(day + COACH.indexOf(best)) % best.msgs.length](c); } catch (e) { text = COACH.find(r => r.w === 1).msgs[0](c); }
   let tip = null; try { tip = pickTip(c); } catch (e) { /* no tip for this situation */ }
-  return { text, tone: best.tone, tip };
+  return { text, tone: best.tone, tip, c };
 }
 
 /* ═════════ Coach's tips ═════════
@@ -1484,10 +1488,19 @@ const TIPS = {
     c => `Don't try to make up for last night by going to bed hours early tonight. It feels logical, but you'll probably lie awake, because your body clock isn't ready. Go to bed at your normal time, ${c.bed}. You'll fall asleep faster than usual because of the built-up sleep pressure, and that deeper sleep is how you actually recover.`,
     c => `Move your body today, even a little. A short walk, taking the stairs, ten minutes of anything. Light activity helps you feel more awake now and builds healthy tiredness for tonight. Avoid hard training late in the evening though; when you're short on sleep your body recovers worse from it.`
   ]],
-  keep: ['Keeping it this good', [
-    c => `When everything went right, the job is to notice what made it right. Think back to yesterday evening: when did you eat, when did you stop working, when did the phone go away, what did the last hour look like? Those details are your recipe. Good sleep is mostly the same evening repeated, not anything special.`,
-    c => `The biggest risk after a strong run is relaxing the rules "just this once". One late night costs more than it looks: it shifts your clock, the next evening feels harder, and suddenly you've lost a week of rhythm. Protect the routine on the nights it feels unnecessary. Those are exactly the nights it's working.`,
-    c => `Weekends are where good sleep habits usually break. Keep your weekend wake time within half an hour of ${c.wake}, even if you went to bed a bit later. Have the lie-in as a quiet morning in bed with a book, not as extra sleep. That way Monday doesn't feel like jet lag.`
+  // After a good night (score 80+, not red): praise instead of advice
+  praise: ['Well done', [
+    c => `${c.L.score} last night. In bed at ${c.L.bedClock}, up at ${c.L.wakeClock}, ${D(c.L.asleep)} asleep. That's exactly the kind of night this is all about.`,
+    c => c.streak >= 2 ? `${c.streak} good nights in a row. Each one was decided in the evening, when staying up would have been easier. That's real discipline.`
+                       : `A strong night to build on. One good night is all a streak needs to begin.`,
+    c => c.L.parts.bed === 20 && c.L.parts.wake === 20 ? `On time at both ends, bed and alarm. Timing is the hardest part of good sleep, and you got it right.`
+                                                       : `${D(c.L.asleep)} of sleep. Your body got what it needed. Notice how today feels compared with a short night.`,
+    c => c.L.awake <= 15 ? `Only ${c.L.awake} minutes awake all night. Unbroken sleep like that is the most restoring kind.`
+                         : `A good night: ${c.L.score} points. A few small things to polish, nothing that needs fixing.`,
+    c => `Your 7-day average is ${c.sc.avg}, ${c.sc.tier} tier. Nights like last night are what hold it there.`,
+    c => `This is what consistency looks like from the inside: nothing dramatic, just a normal evening and a normal morning. Good work.`,
+    c => `You gave yourself a full night when there were plenty of reasons not to. Today you get the reward: steadier focus, better mood, fewer cravings.`,
+    c => c.L.score >= 95 ? `${c.L.score}. That's about as good as a night gets. Enjoy it.` : `A solid ${c.L.score}. Good nights don't need to be perfect, they need to be repeated, and you're doing that.`
   ]],
   score: ['How to raise your score', [
     c => `Your score has four parts: duration (40 points), bedtime (20), wake time (20) and interruptions (20). The two timing parts are the easiest 40 points you can get, because they only depend on being in bed by ${c.bed} and up by ${c.wake}, within ${c.tol} minutes. Get those right every night and a score in the 80s needs only a decent amount of sleep.`,
@@ -1499,9 +1512,12 @@ const TIPS = {
 function pickTip(c) {
   if (!c.n) return null;
   let topic;
+  // Past bedtime the tip is always about getting to sleep. Otherwise: praise after a good night, advice after a bad one.
+  const good = c.L && c.L.score >= 80 && !c.L.red.length;
   if (c.phase === 'over' || c.phase === 'late') topic = 'late';
-  else if (c.phase === 'wind') topic = 'wind';
   else if (c.unlogged) topic = 'log';
+  else if (good) topic = 'praise';
+  else if (c.phase === 'wind') topic = 'wind';
   else if (c.phase === 'evening') topic = 'evening';
   else {
     const L = c.L, p = L.parts, tag = re => L.tags.some(t => re.test(t));
@@ -1509,7 +1525,6 @@ function pickTip(c) {
     else if ((!L.hit || L.awake >= 25) && tag(/alcohol|drink|wine|beer/i)) topic = 'alcohol';
     else if (L.bedDev > c.tol && tag(/screen|phone/i)) topic = 'screens';
     else if (c.phase === 'morning' && !L.hit) topic = 'morning';
-    else if (L.score >= 90) topic = 'keep';
     else {
       // The weakest score part, measured as the share of its points that was lost
       const loss = [['duration', 1 - p.dur / 40], ['bedtime', 1 - p.bed / 20], ['wake', 1 - p.wake / 20], ['interrupt', 1 - p.intr / 20]].sort((a, b) => b[1] - a[1]);
@@ -1517,18 +1532,67 @@ function pickTip(c) {
     }
   }
   const [title, list] = TIPS[topic], day = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / DAY);
-  return { title, text: list[(day + topic.length) % list.length](c) };
+  return { title, text: list[(day + topic.length) % list.length](c), praise: topic === 'praise' };
 }
+/** Daily feedback on last night: what went well and what to work on, each point with the actual numbers. */
+function nightFeedback(c) {
+  if (!c.n || !c.L) return null;
+  const L = c.L, P = c.P, good = [], bad = [], thr = c.thr, tol = c.tol, ds = m => (Math.abs(m) < 60 ? `${Math.abs(Math.round(m))}m` : D(m).replace(' 00m', ''));
+  // Duration
+  if (L.asleep >= thr) good.push(`${D(L.asleep)} asleep, goal of ${ds(thr)} reached`);
+  else bad.push(`${D(L.asleep)} asleep, ${ds(thr - L.asleep)} short of ${ds(thr)}`);
+  // Bedtime and wake time (early is fine)
+  if (L.bedDev <= tol) good.push(L.bedDev < -5 ? `In bed at ${L.bedClock}, ${ds(L.bedDev)} early` : `In bed on time at ${L.bedClock}`);
+  else bad.push(`In bed at ${L.bedClock}, ${ds(L.bedDev)} late`);
+  if (L.wakeDev <= tol) good.push(L.wakeDev < -5 ? `Up at ${L.wakeClock}, ${ds(L.wakeDev)} early` : `Up on time at ${L.wakeClock}`);
+  else bad.push(`Up at ${L.wakeClock}, ${ds(L.wakeDev)} late`);
+  // Interruptions
+  if (L.awake <= 15) good.push(`Only ${L.awake}m awake during the night`);
+  else if (L.awake >= 30) bad.push(`${L.awake}m awake during the night`);
+  // Red night
+  if (L.red.length) bad.unshift(`Red night: ${L.red.join(', ')}`);
+  // Compared with the night before and the week
+  if (P) {
+    const bedShift = L.bedDev - P.bedDev;
+    if (bedShift <= -20) good.push(`In bed ${ds(bedShift)} earlier than the night before`);
+    else if (bedShift >= 20) bad.push(`In bed ${ds(bedShift)} later than the night before`);
+  }
+  const vsAvg = L.asleep - c.avg7;
+  if (c.w7 >= 4 && vsAvg >= 20) good.push(`${ds(vsAvg)} more sleep than your 7-day average`);
+  else if (c.w7 >= 4 && vsAvg <= -20) bad.push(`${ds(vsAvg)} less sleep than your 7-day average`);
+  // Streak
+  if (c.streak >= 2) good.push(`${c.streak}-night streak still alive`);
+  else if (c.lost >= 2) bad.push(`Your ${c.lost}-night streak ended`);
+  // Week pattern
+  if (c.w7 >= 5 && c.bedOn7 >= c.w7 - 1) good.push(`On time to bed ${c.bedOn7} of the last ${c.w7} nights`);
+  else if (c.w7 >= 5 && c.bedOn7 <= 2) bad.push(`On time to bed only ${c.bedOn7} of the last ${c.w7} nights`);
+  // Habits from your own data
+  if (c.hasWorst) bad.push(`${c.tagWorst.name}: nights with it reach the goal only ${c.tagWorst.rate}% of the time`);
+  if (c.hasBest) good.push(`${c.tagBest.name}: nights with it reach the goal ${c.tagBest.rate}% of the time`);
+  return { good: good.slice(0, 5), bad: bad.slice(0, 5) };
+}
+
 function renderCoach() {
   const pick = pickCoach(), el = $('#coach-msg'), more = $('#coach-more');
   const tipBox = $('#coach-tip');
   tipBox.classList.toggle('hidden', !pick.tip);
-  if (pick.tip) { $('#coach-tip-title').textContent = `Coach's tip · ${pick.tip.title}`;
+  if (pick.tip) { $('#coach-tip-title').textContent = pick.tip.praise ? 'Well done' : `Coach's tip · ${pick.tip.title}`;
+    $('#coach-tip-title').className = `text-[11px] uppercase tracking-wider font-semibold ${pick.tip.praise ? 'text-sage' : 'text-indigo-300'}`;
     if ($('#coach-tip-body').textContent !== pick.tip.text) $('#coach-tip-body').textContent = pick.tip.text; }
   const cut = pick.text.indexOf('\n'), head = cut < 0 ? pick.text : pick.text.slice(0, cut), detail = cut < 0 ? '' : pick.text.slice(cut + 1).trim();
   if (el.textContent !== head) el.textContent = head;
   if (more.textContent !== detail) more.textContent = detail;
   more.classList.toggle('hidden', !detail);
+  // Feedback on last night: shown by day and in the evening, not at night or when last night isn't logged
+  const rv = $('#coach-review'), c = pick.c, fb = c && !c.night && !c.unlogged ? nightFeedback(c) : null;
+  rv.classList.toggle('hidden', !fb);
+  if (fb) {
+    const col = (title, items, cls, mark) => items.length ? `<div class="rounded-xl bg-white/[0.03] border border-line px-3.5 py-3">
+        <p class="text-[11px] uppercase tracking-wider font-semibold ${cls}">${title}</p>
+        <ul class="mt-1.5 space-y-1">${items.map(t => `<li class="text-sm text-slate-300 leading-snug flex gap-2"><span class="${cls} font-bold shrink-0">${mark}</span><span>${esc(t)}</span></li>`).join('')}</ul></div>` : '';
+    const html = col('What went well', fb.good, 'text-sage', '+') + col('What to work on', fb.bad, 'text-warn', '−');
+    if (rv.dataset.sig !== html) { rv.innerHTML = html; rv.dataset.sig = html; }
+  }
   $('#coach').style.borderLeftColor = { good: '#10B981', warn: '#F59E0B', info: '#6366F1' }[pick.tone];
   $('#coach-foot').textContent = `Picked for right now from ${COACH.reduce((s, r) => s + r.msgs.length, 0)} pre-written notes and ${Object.values(TIPS).reduce((s, t) => s + t[1].length, 0)} tips`;
 }
@@ -2007,7 +2071,7 @@ function renderAll() {
   $('#empty-state').classList.toggle('hidden', has);
   $('#empty-state').classList.toggle('flex', !has);
   $$('.tol-label').forEach(e => e.textContent = `±${S().toleranceMin}m`);
-  $$('.goal-label').forEach(e => e.textContent = fmtDur(S().goalMin).replace(' 00m', ''));
+  $$('.goal-label').forEach(e => e.textContent = fmtDur(okMin()).replace(' 00m', ''));
   $$('.range-seg button').forEach(b => b.classList.toggle('on', +b.dataset.range === ui.range));
   const t = targets();
   $('#header-sub').textContent = `In bed by ${fmtClock(t.bed)} · up at ${fmtClock(t.wake)}`;
@@ -2034,7 +2098,7 @@ function renderHero() {
   const prev = ns.slice(0, -1).filter(n => dayDiff(last.date, n.date) <= 7).map(n => sleepScore(n).total);
   const delta = prev.length ? sc.total - Math.round(avg2(prev)) : null;
   const losses = [
-    [40 - sc.dur, `${fmtDur(goalFor(last) - last.asleepMin)} short of your goal cost you ${40 - sc.dur} points.`],
+    [40 - sc.dur, `${fmtDur(okFor(last) - last.asleepMin)} short of your goal cost you ${40 - sc.dur} points.`],
     [20 - sc.bed, `Going to bed ${sc.bedDev}m late cost you ${20 - sc.bed} points.`],
     [20 - sc.wake, `Getting up ${sc.wakeDev}m late cost you ${20 - sc.wake} points.`],
     [20 - sc.intr, `${sc.awake}m awake in the night cost you ${20 - sc.intr} points.`]
@@ -2042,7 +2106,7 @@ function renderHero() {
   const nudge = sc.red ? `Red night: ${redReasons(last).join(', ')}.${sc.capped ? ` The parts add up to ${sc.raw}, but red nights are capped at ${RED_SCORE_CAP}.` : ''}`
     : losses[0] <= 2 ? 'Nothing left on the table. Now do it again tonight.' : losses[1];
   // One short line per score part: how many points were lost, and exactly why
-  const tol = s.toleranceMin, goalL = goalFor(last);
+  const tol = s.toleranceMin, goalL = okFor(last);
   const dShort = m => { m = Math.abs(Math.round(m)); return m < 60 ? `${m}m` : fmtDur(m).replace(' 00m', ''); };
   const late = v => `${dShort(v)} ${v > 0 ? 'late' : 'early'}`;
   const why = {
@@ -2268,7 +2332,7 @@ function renderLog() {
   const ns = sortedNights().reverse();
   $('#log-count').textContent = ns.length ? `${ns.length} night${ns.length === 1 ? '' : 's'}` : '';
   $('#log').innerHTML = ns.map(n => {
-    const ok = n.asleepMin >= S().goalMin, sched = onSchedule(n), red = isRed(n);
+    const ok = n.asleepMin >= okFor(n), sched = onSchedule(n), red = isRed(n);
     const tags = (n.tags || []).map(t => `<span class="chip">${esc(t)}</span>`).join('') || `<span class="text-xs text-muted/60">+ add tags</span>`;
     return `<button data-date="${n.date}" class="night-row w-full text-left grid grid-cols-[1fr_auto] sm:grid-cols-[130px_200px_130px_1fr] gap-x-4 gap-y-1.5 items-center px-2 sm:px-3 py-3 rounded-xl hover:bg-white/[0.035] transition border-t border-line/60 first:border-t-0">
       <span class="text-sm font-medium">${fmtDateLong(n.date)}</span>
@@ -2358,22 +2422,22 @@ function renderCharts() {
   });
 
   /* Duration: hours asleep vs the goal line. */
-  const goalH = S().goalMin / 60, hours = ns.map(n => +(n.asleepMin / 60).toFixed(2));
+  const goalH = okMin() / 60, hours = ns.map(n => +(n.asleepMin / 60).toFixed(2));
   const o2 = baseOptions(dates);
   o2.scales = { x: xScale, y: { beginAtZero: true, suggestedMax: Math.max(10, Math.ceil(Math.max(...hours)) + 1), border: { display: false }, grid: { color: C.grid },
     ticks: { stepSize: 2, callback: v => v + 'h' } } };
-  o2.plugins.targetLines = { lines: [{ value: goalH, color: '#F8FAFC', textColor: '#F8FAFC', dash: [4, 4], label: `${goalH.toFixed(1)}h target` }] };
+  o2.plugins.targetLines = { lines: [{ value: goalH, color: '#F8FAFC', textColor: '#F8FAFC', dash: [4, 4], label: `${fmtDur(okMin()).replace(' 00m', '')} goal` }] };
   o2.plugins.tooltip.callbacks = {
     title: items => fmtDateLong(dates[items[0].dataIndex]),
-    label: item => { const n = ns[item.dataIndex], diff = n.asleepMin - S().goalMin;
+    label: item => { const n = ns[item.dataIndex], diff = n.asleepMin - okFor(n);
       const lines = [`Asleep ${fmtDur(n.asleepMin)}`, diff >= 0 ? `${fmtDur(diff)} over goal` : `${fmtDur(diff)} short of goal`];
       if (n.stages) lines.push(`Deep ${fmtDur(n.stages.deep)} · Core ${fmtDur(n.stages.core)} · REM ${fmtDur(n.stages.rem)}`);
       return lines; }
   };
   charts.duration = new Chart($('#chart-duration'), {
     type: 'bar', plugins: [targetLines],
-    data: { labels, datasets: [{ data: hours, backgroundColor: ns.map(n => nightRgba(n, n.asleepMin >= S().goalMin)),
-      hoverBackgroundColor: ns.map(n => nightHex(n, n.asleepMin >= S().goalMin)), borderRadius: 6, maxBarThickness: thick + 6 }] },
+    data: { labels, datasets: [{ data: hours, backgroundColor: ns.map(n => nightRgba(n, n.asleepMin >= okFor(n))),
+      hoverBackgroundColor: ns.map(n => nightHex(n, n.asleepMin >= okFor(n))), borderRadius: 6, maxBarThickness: thick + 6 }] },
     options: o2
   });
 }
@@ -2464,7 +2528,7 @@ function openNight(key) {
     const tol = S().toleranceMin, cls = v => Math.abs(v) <= tol ? 'text-sage' : 'text-warn';
     const rr = redReasons(n);
     sum.innerHTML = (rr.length ? `<div class="rounded-lg bg-red-500/15 border border-red-500/40 px-2.5 py-2 mb-3 text-xs text-red-200"><b class="text-red-300 uppercase tracking-wide">Red night</b> · ${rr.map(esc).join(' · ')}</div>` : '')
-      + `<div class="flex items-baseline justify-between"><span class="text-2xl font-bold ${rr.length ? 'text-red-400' : n.asleepMin >= S().goalMin ? 'text-sage' : 'text-warn'}">${fmtDur(n.asleepMin)}</span>
+      + `<div class="flex items-baseline justify-between"><span class="text-2xl font-bold ${rr.length ? 'text-red-400' : n.asleepMin >= okFor(n) ? 'text-sage' : 'text-warn'}">${fmtDur(n.asleepMin)}</span>
         <span class="text-xs text-muted">asleep · score <span class="font-semibold ${scoreTone(sleepScore(n).total, isRed(n)).cls}">${sleepScore(n).total}</span></span></div>
       <div class="flex justify-between text-xs mt-1"><span class="${cls(d.bed)}">Bed ${dev(d.bed)}</span><span class="${cls(d.wake)}">Wake ${dev(d.wake)}</span></div>
       ${n.stages ? `<div class="mt-3">${stageBar(n, 'h-2')}</div><div class="flex justify-between text-[11px] text-muted mt-1.5"><span>Deep ${fmtDur(n.stages.deep)}</span><span>Core ${fmtDur(n.stages.core)}</span><span>REM ${fmtDur(n.stages.rem)}</span><span>Awake ${fmtDur(n.stages.awake)}</span></div>` : ''}`;
