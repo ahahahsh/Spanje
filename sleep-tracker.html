@@ -1656,10 +1656,14 @@ function decodeLinkData(raw) {
 function importFromLink() {
   // Accept #import=…, ?import=… or &import=… (any letter case), so a small typo in the shortcut still works
   const hash = location.hash, search = location.search;
-  const m = (hash + '&' + search).match(/[#?&]\s*(?:import|data|csv)\s*=([^&]*)/is);
+  // Shortcuts may percent-encode the whole fragment, turning "#data=…" into "#data%3D…" (or worse), so decode the
+  // link itself first. Base64 never contains "&" or "%", so decoding can't break the data apart.
+  let link = hash + '&' + search;
+  for (let i = 0; i < 4 && /%[0-9A-Fa-f]{2}/.test(link); i++) { try { link = decodeURIComponent(link); } catch (e) { break; } }
+  const m = link.match(/[#?&]\s*(?:import|data|csv)\s*[=:]?\s*([^&]*)/i);
   if (!m) {
     if (hash.length > 1 || search.length > 1) {                    // opened with something, but not in a shape we know
-      const seen = (hash || search).slice(0, 60);
+      const seen = (hash || search).slice(0, 90);
       state.lastSync = { at: Date.now(), ok: false, error: `The link arrived but in an unexpected shape: "${seen}". It must contain #import= followed by the data.` };
       save(); history.replaceState(null, '', location.pathname);
       return { ok: false, msg: 'Shortcut sync failed', detail: state.lastSync.error };
