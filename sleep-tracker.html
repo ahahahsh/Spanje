@@ -1654,9 +1654,19 @@ function decodeLinkData(raw) {
 }
 /** Import nights passed in the URL, then remove them from the address bar. Returns a status message or null. */
 function importFromLink() {
-  const m = location.hash.match(/^#(?:import|data|csv)=(.*)$/s);
-  if (!m) return null;
-  history.replaceState(null, '', location.pathname + location.search);   // keep the data out of history and bookmarks
+  // Accept #import=…, ?import=… or &import=… (any letter case), so a small typo in the shortcut still works
+  const hash = location.hash, search = location.search;
+  const m = (hash + '&' + search).match(/[#?&]\s*(?:import|data|csv)\s*=([^&]*)/is);
+  if (!m) {
+    if (hash.length > 1 || search.length > 1) {                    // opened with something, but not in a shape we know
+      const seen = (hash || search).slice(0, 60);
+      state.lastSync = { at: Date.now(), ok: false, error: `The link arrived but in an unexpected shape: "${seen}". It must contain #import= followed by the data.` };
+      save(); history.replaceState(null, '', location.pathname);
+      return { ok: false, msg: 'Shortcut sync failed', detail: state.lastSync.error };
+    }
+    return null;
+  }
+  history.replaceState(null, '', location.pathname);                // keep the data out of history and bookmarks
   let text = '';
   try {
     text = repairLinkCsv(decodeLinkData(m[1]).replace(/^﻿/, '').trim());
