@@ -308,6 +308,25 @@
     </div>
   </section>
 
+  <!-- ───────────── Progress: this period vs the one before ───────────── -->
+  <section id="row-progress" class="card p-5 sm:p-6 mb-4 fade-up">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-sm font-semibold">Progress</h2>
+        <p id="pg-sub" class="text-xs text-muted mt-0.5">Is your sleep getting better?</p>
+      </div>
+      <div class="seg" id="pg-seg"><button data-pg="7">7 days</button><button data-pg="30">30 days</button><button data-pg="90">90 days</button></div>
+    </div>
+    <p id="pg-verdict" class="text-base sm:text-lg font-semibold mt-4"></p>
+    <div id="pg-grid" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4"></div>
+    <div class="mt-6">
+      <div class="flex items-center justify-between text-xs text-muted mb-2">
+        <span class="font-semibold text-slate-300">Average sleep score per week, last 12 weeks</span>
+      </div>
+      <div class="relative h-48 sm:h-56"><canvas id="chart-progress"></canvas></div>
+    </div>
+  </section>
+
   <!-- ───────────── Night log ───────────── -->
   <section id="row-log" class="card p-3 sm:p-4 fade-up">
     <div class="flex items-center justify-between px-2 sm:px-3 pt-2 pb-3">
@@ -2068,6 +2087,7 @@ function renderAll() {
   $('#card-timeline').classList.toggle('hidden', !has);
   $('#row-duration').classList.toggle('hidden', !has);
   $('#row-log').classList.toggle('hidden', !has);
+  $('#row-progress').classList.toggle('hidden', !has);
   $('#empty-state').classList.toggle('hidden', has);
   $('#empty-state').classList.toggle('flex', !has);
   $$('.tol-label').forEach(e => e.textContent = `±${S().toleranceMin}m`);
@@ -2076,7 +2096,7 @@ function renderAll() {
   const t = targets();
   $('#header-sub').textContent = `In bed by ${fmtClock(t.bed)} · up at ${fmtClock(t.wake)}`;
   $('#row-hero').classList.toggle('hidden', !has);
-  renderHero(); renderKPIs(); renderInsights(); renderLog(); renderCharts(); tickWindDown(); tickStreak(); renderCoach();
+  renderHero(); renderKPIs(); renderInsights(); renderLog(); renderCharts(); renderProgress(); tickWindDown(); tickStreak(); renderCoach();
 }
 
 /** Animate a number from 0 up to `to` (skipped when the user prefers reduced motion). */
@@ -2442,6 +2462,109 @@ function renderCharts() {
   });
 }
 
+/* ───────────── 7b. Progress: this period vs the period before ─────────────
+   Both periods end at the latest logged night (like the other metrics), so they're always complete.
+   Each metric knows which direction is better, so the arrows and colours mean the same thing everywhere. */
+function periodStats(ns, t) {
+  if (!ns.length) return null;
+  const n = ns.length, mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+  const bedDev = mean(ns.map(x => circDiff(minOfDay(x.bed), t.finalBed))), wakeDev = mean(ns.map(x => circDiff(minOfDay(x.wake), t.wake)));
+  return {
+    n,
+    avgSleep: mean(ns.map(x => x.asleepMin)),
+    okPct: 100 * ns.filter(x => x.asleepMin >= okFor(x)).length / n,
+    red: ns.filter(isRed).length,
+    redPct: 100 * ns.filter(isRed).length / n,
+    cons: mean(ns.map(nightScore)),
+    score: mean(ns.map(x => sleepScore(x).total)),
+    bedDev, wakeDev, bedClock: fmtClock(t.finalBed + bedDev), wakeClock: fmtClock(t.wake + wakeDev)
+  };
+}
+
+function renderProgress() {
+  const range = ui.progRange || 30, ns = sortedNights();
+  $$('#pg-seg button').forEach(b => b.classList.toggle('on', +b.dataset.pg === range));
+  if (!ns.length) return;
+  const last = ns[ns.length - 1], t = targets();
+  const inWin = (a, b) => ns.filter(x => { const d = dayDiff(last.date, x.date); return d >= a && d < b; });
+  const cur = periodStats(inWin(0, range), t), prev = periodStats(inWin(range, range * 2), t);
+  const fmtRange = (a, b) => { const e = keyToDate(last.date); e.setDate(e.getDate() - a); const s = keyToDate(last.date); s.setDate(s.getDate() - b + 1);
+    return `${s.toLocaleDateString([], { day: 'numeric', month: 'short' })} – ${e.toLocaleDateString([], { day: 'numeric', month: 'short' })}`; };
+  $('#pg-sub').textContent = `Last ${range} days (${fmtRange(0, range)}) compared with the ${range} days before (${fmtRange(range, range * 2)}).`;
+
+  // [label, value now, value before, formatter for the value, formatter for the change, higher is better?, minimum change that counts]
+  const ds = m => (Math.abs(m) < 60 ? `${Math.abs(Math.round(m))}m` : fmtDur(m).replace(' 00m', ''));
+  const metrics = [
+    ['Average sleep', cur.avgSleep, prev?.avgSleep, v => fmtDur(v), d => ds(d), true, 10],
+    [`Nights ≥ ${fmtDur(okMin()).replace(' 00m', '')}`, cur.okPct, prev?.okPct, v => `${Math.round(v)}%`, d => `${Math.abs(Math.round(d))} pts`, true, 5],
+    ['Red nights', cur.redPct, prev?.redPct, v => `${cur === null ? 0 : Math.round(v * range / 100)}`, d => `${Math.abs(Math.round(d))} pts`, false, 5],
+    ['Sleep score', cur.score, prev?.score, v => `${Math.round(v)}`, d => `${Math.abs(Math.round(d))}`, true, 2],
+    ['Consistency', cur.cons, prev?.cons, v => `${Math.round(v)}%`, d => `${Math.abs(Math.round(d))} pts`, true, 3],
+    ['Average bedtime', cur.bedDev, prev?.bedDev, null, d => ds(d), false, 10],
+    ['Average wake-up', cur.wakeDev, prev?.wakeDev, null, d => ds(d), false, 10],
+    ['Nights logged', cur.n, prev?.n, v => `${v}`, d => `${Math.abs(Math.round(d))}`, true, 1]
+  ];
+  // Red nights are shown as a count, but compared as a share so periods with different numbers of logged nights compare fairly
+  const showVal = (m, which) => {
+    if (m[0] === 'Average bedtime') return which === 'cur' ? cur.bedClock : prev.bedClock;
+    if (m[0] === 'Average wake-up') return which === 'cur' ? cur.wakeClock : prev.wakeClock;
+    if (m[0] === 'Red nights') return `${which === 'cur' ? cur.red : prev.red}`;
+    return m[3](which === 'cur' ? m[1] : m[2]);
+  };
+  let better = 0, worse = 0, compared = 0;
+  const enough = prev && prev.n >= 3 && cur.n >= 3;
+  const tiles = metrics.map(m => {
+    const [label, now, before, , fmtD, higherBetter, minChange] = m;
+    let chip = '', tone = 'text-crisp';
+    if (enough && before != null && label !== 'Nights logged') {
+      compared++;
+      const d = now - before, good = higherBetter ? d > 0 : d < 0;
+      if (Math.abs(d) < minChange) chip = `<span class="text-muted">about the same</span>`;
+      else {
+        if (good) better++; else worse++;
+        // Bedtime/wake-up: say earlier/later rather than up/down
+        const word = label.startsWith('Average b') || label.startsWith('Average w') ? (d < 0 ? 'earlier' : 'later') : (d > 0 ? '▲' : '▼');
+        const txt = label === 'Red nights' ? `${Math.round(before)}% → ${Math.round(now)}% of nights`
+          : word === '▲' || word === '▼' ? `${word} ${fmtD(d)}` : `${fmtD(d)} ${word}`;
+        chip = `<span class="${good ? 'text-sage' : 'text-warn'} font-semibold">${txt}</span>`;
+        tone = good ? 'text-sage' : 'text-warn';
+      }
+    }
+    return `<div class="rounded-2xl bg-obsidian/60 border border-line px-4 py-3">
+      <p class="text-[11px] uppercase tracking-wider text-muted font-medium">${label}</p>
+      <p class="text-2xl font-bold mt-1 ${tone}">${showVal(m, 'cur')}</p>
+      <p class="text-[11px] text-muted mt-0.5">${enough && before != null ? `was ${showVal(m, 'prev')} · ` : ''}${chip || (enough ? '' : 'not enough earlier data')}</p></div>`;
+  }).join('');
+  $('#pg-grid').innerHTML = tiles;
+
+  const v = $('#pg-verdict');
+  if (!enough) { v.textContent = `Not enough nights in the ${range} days before to compare yet.`; v.className = 'text-base sm:text-lg font-semibold mt-4 text-muted'; }
+  else if (better > worse) { v.textContent = `Better than the ${range} days before in ${better} of ${compared} areas${worse ? `, worse in ${worse}` : ''}. Your sleep is improving.`; v.className = 'text-base sm:text-lg font-semibold mt-4 text-sage'; }
+  else if (worse > better) { v.textContent = `Worse than the ${range} days before in ${worse} of ${compared} areas${better ? `, better in ${better}` : ''}. You're slipping.`; v.className = 'text-base sm:text-lg font-semibold mt-4 text-warn'; }
+  else { v.textContent = better ? `Mixed: better in ${better} areas, worse in ${worse}. No clear direction yet.` : `About the same as the ${range} days before. Holding steady.`; v.className = 'text-base sm:text-lg font-semibold mt-4 text-crisp'; }
+
+  // Weekly average score for the last 12 weeks (week = 7 nights ending at the latest night)
+  const weeks = [...Array(12)].map((_, i) => 11 - i).map(w => {
+    const nn = inWin(w * 7, w * 7 + 7), e = keyToDate(last.date); e.setDate(e.getDate() - w * 7);
+    return { label: e.toLocaleDateString([], { day: 'numeric', month: 'short' }), score: nn.length ? Math.round(avg2(nn.map(x => sleepScore(x).total))) : null, n: nn.length, red: nn.filter(isRed).length };
+  });
+  if (charts.progress) charts.progress.destroy();
+  if (typeof Chart === 'undefined') return;
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim().split(/\s+/).join(',');
+  charts.progress = new Chart($('#chart-progress'), {
+    type: 'line', plugins: [targetLines],
+    data: { labels: weeks.map(w => w.label), datasets: [{ data: weeks.map(w => w.score), spanGaps: true, tension: .35, borderWidth: 2.5,
+      borderColor: `rgb(${accent})`, backgroundColor: `rgba(${accent},.12)`, fill: true,
+      pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: weeks.map(w => w.score == null ? 'transparent' : w.red ? '#EF4444' : w.score >= HIGH_SCORE ? '#10B981' : w.score >= 60 ? '#818CF8' : '#F59E0B'), pointBorderWidth: 0 }] },
+    options: { responsive: true, maintainAspectRatio: false, animation: { duration: 600 },
+      plugins: { legend: { display: false }, targetLines: { lines: [{ value: HIGH_SCORE, color: 'rgba(16,185,129,.6)', textColor: '#6EE7B7', dash: [4, 4], label: `${HIGH_SCORE} = strong`, below: false }] },
+        tooltip: { backgroundColor: '#1C2333', borderColor: '#2C3550', borderWidth: 1, padding: 10, cornerRadius: 10, displayColors: false,
+          callbacks: { title: it => `Week to ${weeks[it[0].dataIndex].label}`, label: it => { const w = weeks[it.dataIndex]; return w.score == null ? 'No nights logged' : [`Average score ${w.score}`, `${w.n} night${w.n === 1 ? '' : 's'} · ${w.red} red`]; } } } },
+      scales: { x: { grid: { display: false }, border: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 12 } },
+        y: { min: 0, max: 100, border: { display: false }, grid: { color: 'rgba(148,163,184,.08)' }, ticks: { stepSize: 20 } } } }
+  });
+}
+
 /* ───────────── 8. Wind-down countdown (ticks every second) ───────────── */
 function tickWindDown() {
   const now = Date.now(), t = targets(), s = S();
@@ -2636,6 +2759,7 @@ function init() {
 
   // Chart range toggles (both charts share one range)
   $$('.range-seg button').forEach(b => b.onclick = () => { ui.range = +b.dataset.range; renderAll(); });
+  $$('#pg-seg button').forEach(b => b.onclick = () => { ui.progRange = +b.dataset.pg; renderProgress(); });
 
   // Settings
   $$('#modal-settings input').forEach(i => i.addEventListener('change', applySettings));
