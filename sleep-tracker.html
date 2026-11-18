@@ -312,6 +312,7 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
       </button>
     </div>
+    <button id="paste-shortcut" class="btn btn-primary w-full !py-3 mb-3">Import from clipboard (iPhone shortcut)</button>
     <div id="dropzone" class="dropzone p-8 text-center" tabindex="0" role="button">
       <svg class="mx-auto mb-3 text-accent" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
       <p class="text-sm font-semibold">Drop a CSV or JSON file here</p>
@@ -1660,6 +1661,8 @@ function importFromLink() {
   // link itself first. Base64 never contains "&" or "%", so decoding can't break the data apart.
   let link = hash + '&' + search;
   for (let i = 0; i < 4 && /%[0-9A-Fa-f]{2}/.test(link); i++) { try { link = decodeURIComponent(link); } catch (e) { break; } }
+  // "#paste": the shortcut copied the data to the clipboard instead of putting it in the link
+  if (/^[#?&]\s*paste\b/i.test(link)) { history.replaceState(null, '', location.pathname); return { paste: true }; }
   const m = link.match(/[#?&]\s*(?:import|data|csv)\s*[=:]?\s*([^&]*)/i);
   if (!m) {
     if (hash.length > 1 || search.length > 1) {                    // opened with something, but not in a shape we know
@@ -1671,10 +1674,20 @@ function importFromLink() {
     return null;
   }
   history.replaceState(null, '', location.pathname);                // keep the data out of history and bookmarks
+  if (!m[1].trim()) {
+    const err = `The link arrived cut off: it ends right after "#data=" (${hash.length} characters received). The shortcut builds the data, but iOS drops it when the Open action turns long text into a link. Use the clipboard route instead: in the app tap Import, or see the shortcut steps for "#paste".`;
+    state.lastSync = { at: Date.now(), ok: false, error: err }; save();
+    return { ok: false, msg: 'Shortcut sync failed', detail: err, offerPaste: true };
+  }
+  return importShortcutText(m[1]);
+}
+
+/** Import sleep data handed over by the shortcut (from the link or the clipboard), record the result, return a banner. */
+function importShortcutText(raw) {
   let text = '';
   try {
-    text = repairLinkCsv(decodeLinkData(m[1]).replace(/^﻿/, '').trim());
-    if (!text) throw new Error('The shortcut opened the app but sent no data. In the last Text action, the blue "URL Encoded Text" variable is probably missing after #import=.');
+    text = repairLinkCsv(decodeLinkData(String(raw)).replace(/^﻿/, '').trim());
+    if (!text) throw new Error('No data arrived from the shortcut.');
     const res = importText(text);
     if (!res.nights.length) throw new Error(diagnoseLinkData(text) || 'No complete nights of sleep found in the data.');
     mergeNights(res.nights, false);
@@ -1694,8 +1707,37 @@ function importFromLink() {
     return r;
   } catch (e) {
     state.lastSync = { at: Date.now(), ok: false, error: e.message }; save();
-    return { ok: false, msg: 'Shortcut sync failed', detail: e.message, preview: text.split(/\r?\n/).slice(0, 4).map(l => l.slice(0, 140)).join('\n') };
+    return { ok: false, msg: 'Shortcut sync failed', detail: e.message, preview: text.split(/\r?\n/).slice(0, 4).map(l => l.slice(0, 140)).join('\n'), offerPaste: true };
   }
+}
+
+/** Clipboard route: read what the shortcut copied. iOS asks for one confirmation tap ("Paste"). */
+async function pasteFromShortcut() {
+  let text = '';
+  try { text = await navigator.clipboard.readText(); } catch (e) { /* blocked or unsupported: fall back to the paste box */ }
+  if (!text || !text.trim()) { showPasteBox(); return; }
+  const r = importShortcutText(text);
+  renderAll(); showSync(r); window.scrollTo(0, 0);
+}
+/** Fallback when the clipboard can't be read directly: a box to long-press and paste into. */
+function showPasteBox() {
+  const el = $('#sync-banner');
+  el.className = 'mb-5 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 fade-up';
+  el.innerHTML = `<p class="text-sm font-semibold text-indigo-100">Paste the data from the shortcut</p>
+    <p class="text-sm text-slate-300 mt-1">Touch and hold the box below, choose <b>Paste</b>, then tap Import.</p>
+    <textarea id="paste-box" rows="3" class="field mt-3 !text-xs font-mono" placeholder="Touch and hold here, then Paste"></textarea>
+    <div class="flex gap-2 mt-2"><button id="paste-go" class="btn btn-primary !py-2">Import</button><button id="paste-cancel" class="btn btn-ghost !py-2">Cancel</button></div>`;
+  $('#paste-go').onclick = () => { const v = $('#paste-box').value; if (!v.trim()) return; const r = importShortcutText(v); renderAll(); showSync(r); };
+  $('#paste-cancel').onclick = () => el.classList.add('hidden');
+}
+/** Banner shown when the shortcut opens the app with #paste. */
+function showPasteBanner() {
+  const el = $('#sync-banner');
+  el.className = 'mb-5 rounded-2xl border border-accent/40 bg-accent/15 px-4 py-4 fade-up';
+  el.innerHTML = `<p class="text-sm font-semibold text-indigo-100">Your sleep data is ready on the clipboard</p>
+    <p class="text-sm text-slate-300 mt-1">Tap the button, then tap <b>Paste</b> when iOS asks.</p>
+    <button id="paste-now" class="btn btn-primary mt-3 w-full sm:w-auto !py-3 !text-base">Import from shortcut</button>`;
+  $('#paste-now').onclick = pasteFromShortcut;
 }
 
 /** Dates like "Nov 17, 2026 at 11:05 PM" contain commas, which breaks the comma-separated lines the shortcut builds.
@@ -1739,6 +1781,10 @@ function showSync(r) {
       <button class="sync-close text-muted hover:text-crisp p-1 -m-1" aria-label="Dismiss"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </div>`;
   el.querySelector('.sync-close').onclick = () => el.classList.add('hidden');
+  if (r.offerPaste) {
+    const b = document.createElement('button'); b.className = 'btn btn-primary !py-2 mt-3 ml-5'; b.textContent = 'Import from clipboard';
+    b.onclick = pasteFromShortcut; el.appendChild(b);
+  }
   clearTimeout(showSync.t); if (r.ok && !r.warn) showSync.t = setTimeout(() => el.classList.add('hidden'), 15000);
   renderSyncStatus();
 }
@@ -2329,7 +2375,8 @@ function clearNights(msg) { state.nights = []; state.pledges = {}; state.isSampl
 function init() {
   load();
   const linkSync = importFromLink();                       // data sent by the iPhone Shortcut, if any
-  window.addEventListener('hashchange', () => { const r = importFromLink(); if (r) { renderAll(); showSync(r); window.scrollTo(0, 0); } });
+  window.addEventListener('hashchange', () => { const r = importFromLink(); if (!r) return;
+    if (r.paste) showPasteBanner(); else { renderAll(); showSync(r); } window.scrollTo(0, 0); });
 
   $('#btn-log').onclick = $('#empty-log').onclick = () => openNight(null);
   $('#btn-import').onclick = $('#banner-import').onclick = $('#empty-import').onclick = () => { $('#import-result').classList.add('hidden'); openModal('modal-import'); };
@@ -2389,7 +2436,8 @@ function init() {
   });
 
   renderAll();
-  if (linkSync) showSync(linkSync);
+  if (linkSync) { if (linkSync.paste) showPasteBanner(); else showSync(linkSync); }
+  $('#paste-shortcut').onclick = () => { closeModals(); window.scrollTo(0, 0); pasteFromShortcut(); };
   renderSyncStatus(); setInterval(renderSyncStatus, 60000);
   let ticks = 0;
   setInterval(() => { tickWindDown(); tickStreak(); if (++ticks % 20 === 0) renderCoach(); }, 1000);   // coach re-checks the situation every 20s
