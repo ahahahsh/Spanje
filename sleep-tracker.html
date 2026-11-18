@@ -146,6 +146,21 @@
 </head>
 
 <body class="min-h-screen">
+
+<!-- ───────────── Night screen: from wind-down until morning the app shows only this ───────────── -->
+<div id="night-screen" class="hidden fixed inset-0 z-40 overflow-y-auto" style="background:radial-gradient(80% 60% at 50% 0%, var(--glow), transparent 70%), rgb(var(--bg-rgb))">
+  <div class="min-h-full max-w-md mx-auto px-6 py-10 flex flex-col justify-center text-center">
+    <div class="w-12 h-12 mx-auto rounded-2xl bg-accent/15 border border-accent/30 grid place-items-center mb-6">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="rgb(var(--accent-rgb))"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"/></svg>
+    </div>
+    <p id="ns-label" class="text-xs uppercase tracking-[.2em] text-muted font-semibold"></p>
+    <p id="ns-big" class="text-6xl sm:text-7xl font-bold tracking-tight mt-3"></p>
+    <p id="ns-sub" class="text-base text-slate-300 mt-3 leading-relaxed"></p>
+    <div id="ns-steps" class="mt-8 space-y-2 text-left"></div>
+    <p id="ns-streak" class="text-sm mt-6 leading-relaxed"></p>
+    <button id="ns-open" class="mt-10 text-xs text-muted underline underline-offset-4 hover:text-crisp">Open the full app anyway</button>
+  </div>
+</div>
 <div class="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 pb-16">
 
   <!-- ───────────── Header ───────────── -->
@@ -177,6 +192,7 @@
   <!-- ───────────── Sample-data banner ───────────── -->
   <p id="sync-status" class="flex items-center gap-2 text-xs text-muted -mt-2 mb-4 min-w-0"></p>
   <div id="sync-banner" class="hidden"></div>
+  <div id="tag-prompt" class="hidden"></div>
   <div id="sample-banner" class="hidden mb-5 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
     <div class="flex items-start gap-3 flex-1">
       <span class="mt-1.5 w-2 h-2 rounded-full bg-accent pulse-dot shrink-0"></span>
@@ -213,7 +229,7 @@
   </section>
 
   <!-- ───────────── Hero KPIs ───────────── -->
-  <section id="kpis" class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4"></section>
+  <section id="kpis" class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1"></section>
 
   <!-- ───────────── Wind-down + Consistency timeline ───────────── -->
   <section class="grid lg:grid-cols-3 gap-4 mb-4">
@@ -592,7 +608,8 @@ const sortedNights = () => [...state.nights].sort((a, b) => (a.date < b.date ? -
 const goalHit = n => n.asleepMin >= goalFor(n) - S().bufferMin && !isRed(n);
 /** Signed minutes late (+) or early (−) for bedtime and wake time. */
 const deviations = n => { const t = targets(); return { bed: circDiff(minOfDay(n.bed), mod1440(t.finalBed + offsetAt(n.date))), wake: circDiff(minOfDay(n.wake), t.wake) }; };
-const onSchedule = n => { const d = deviations(n), tol = S().toleranceMin; return Math.abs(d.bed) <= tol && Math.abs(d.wake) <= tol; };
+/** On schedule = not more than the ± window late for bed or wake-up. Being early is never penalised. */
+const onSchedule = n => { const d = deviations(n), tol = S().toleranceMin; return d.bed <= tol && d.wake <= tol; };
 
 /* Red ("catastrophic") nights: a night that harms the rhythm for days, not just a missed target.
    Limits follow the schedule, so they stay meaningful if the goal or wake time changes:
@@ -614,7 +631,8 @@ const isRed = n => redReasons(n).length > 0;
 const nightHex = (n, good) => isRed(n) ? '#EF4444' : good ? '#10B981' : '#F59E0B';
 const nightRgba = (n, good) => isRed(n) ? 'rgba(239,68,68,.85)' : good ? 'rgba(16,185,129,.8)' : 'rgba(245,158,11,.8)';
 /** 100 inside the ± window, fading linearly to 0 at 90 minutes beyond it. */
-const partScore = dev => { const over = Math.abs(dev) - S().toleranceMin; return over <= 0 ? 100 : Math.max(0, 100 - (over / 90) * 100); };
+/** 100 up to the window late, fading to 0 at 90 minutes beyond it. Early (negative) never costs points. */
+const partScore = dev => { const over = Math.max(0, dev) - S().toleranceMin; return over <= 0 ? 100 : Math.max(0, 100 - (over / 90) * 100); };
 const nightScore = n => { const d = deviations(n); return (partScore(d.bed) + partScore(d.wake)) / 2; };
 
 function computeMetrics() {
@@ -724,7 +742,7 @@ function coachCtx() {
            nextBed: fmtClock(t.bed - Math.min(t.off, lad.step || 20)), goal: D(goalNow()), moved: lad.moved, done: !!lad.on && lad.offset === 0 && lad.start > 0 }, bed: fmtClock(t.bed), wake: fmtClock(t.wake),
     dim: fmtClock(minOfDay(tn.dim)), deadline: fmtClock(minOfDay(tn.deadline)),
     toBed: Math.round((tn.bed - now) / 60000), toDeadline: Math.round((tn.deadline - now) / 60000), toDim: Math.round((tn.dim - now) / 60000),
-    possible: Math.max(0, Math.round((tn.wake - now) / 60000 - s.latencyMin)), pledged: !!state.pledges[tn.key], sample: state.isSample };
+    possible: Math.max(0, Math.round((tn.wake - now) / 60000 - s.latencyMin)), pledged: false, sample: state.isSample };   // pledges were removed; kept false so older rules stay inert
   // Red-night limits for tonight: the bedtime after which tonight turns red, and how far away it is
   const rl = redLimits(); c.redBed = fmtClock(rl.bed); c.redWake = fmtClock(rl.wake); c.redShort = D(rl.asleep).replace(' 00m', '');
   c.toRed = Math.round((tn.bed + (RED.bedLateMin - t.off) * 60000 - now) / 60000);
@@ -755,7 +773,7 @@ function coachCtx() {
   c.redList = L.red.join(', ');
   let ri = all.length - 1; c.sinceRed = 0; while (ri >= 0 && !all[ri].red.length) { c.sinceRed++; ri--; }   // clean nights since the last red one
   c.everRed = ri >= 0;
-  c.bedOn7 = w7.filter(x => A(x.bedDev) <= tol).length; c.wakeOn7 = w7.filter(x => A(x.wakeDev) <= tol).length;
+  c.bedOn7 = w7.filter(x => x.bedDev <= tol).length; c.wakeOn7 = w7.filter(x => x.wakeDev <= tol).length;   // early counts as on time
   const l3 = all.slice(-3), p3 = all.slice(-6, -3), three = l3.length === 3;
   c.bedAvg3 = three ? Math.round(avg2(l3.map(x => x.bedDev))) : 0;
   c.bedLater3 = three && l3[0].bedDev < l3[1].bedDev && l3[1].bedDev < l3[2].bedDev && l3[2].bedDev > tol;
@@ -769,7 +787,7 @@ function coachCtx() {
 
   const isWk = x => [0, 6].includes(keyToDate(x.date).getDay()), wk = all.filter(isWk), wd = all.filter(x => !isWk(x));
   c.weekendShift = wk.length >= 2 && wd.length >= 3 ? Math.round(avg2(wk.map(x => x.wakeDev)) - avg2(wd.map(x => x.wakeDev))) : 0;
-  c.lastPledge = state.pledges[L.date] ? (A(L.bedDev) <= tol ? 'kept' : 'broken') : null;
+  c.lastPledge = null;
 
   const ts = tagStats(), pct = v => Math.round(v * 100);
   const tb = ts[0] && ts[0].lift > 0 ? ts[0] : null, tw = ts.length && ts[ts.length - 1].lift < 0 ? ts[ts.length - 1] : null;
@@ -1080,8 +1098,8 @@ R(45, 'good', c => !c.night && c.L.hit && c.L.sched && c.streak >= 2,
   c => `A textbook night: ${c.L.bedClock} to ${c.L.wakeClock}. That's ${c.streak} now. Same again tonight.`);
 R(44.5, 'good', c => !c.night && c.avg7 > c.avg30 + 20 && c.n30 >= 14,
   c => `This week you're averaging ${D(c.avg7 - c.avg30)} more than your 30-day norm. You're getting better at this.`);
-R(44.2, 'info', c => !c.night && c.L.bedDev < -45,
-  c => `In bed ${A(c.L.bedDev)}m early. Fine once, but going to bed long before you're sleepy trains you to lie awake. Stick to ${c.bed}.`);
+R(44.2, 'good', c => !c.night && c.L.bedDev < -45 && c.L.hit,
+  c => `In bed ${A(c.L.bedDev)}m before your target, and a full night out of it. Early never costs points here.`);
 R(44, 'good', c => !c.night && c.debt >= 0 && c.w7 >= 5,
   c => `No sleep debt this week: you're ${D(c.debt)} ahead. Being ahead is easier to keep than to rebuild.`);
 R(43.5, 'info', c => !c.night && c.L.hit && !c.L.full,
@@ -1377,6 +1395,10 @@ V(67.7, c => `Three nights in a row.\nIt's a small number, and it matters more t
 V(67.8, c => `Seven nights. A whole week at goal.\nThis is the first milestone where the benefit is physical and not just a number: a week of full sleep is usually enough to notice steadier energy and an easier time falling asleep. The next mark is 14, and the risk is the weekend. Hold the wake time.`);
 V(67.9, c => `Fourteen nights.\nTwo full weeks means you've got through two weekends without breaking it. That's the difficult part of any sleep schedule, and you've done it twice. From here on it's less about discipline and more about not letting a one-off evening undo it.`);
 V(68.1, c => `Thirty nights in a row.\nA month. At this point going to bed on time has mostly stopped being a decision. Look back at the first week on the chart and compare it with the last one: that difference is yours. The streak is now long enough that losing it would genuinely hurt, which is exactly what will keep it alive.`);
+
+/* Retired notes: pledges and the separate high-score streak were removed from the app, so their notes go too. */
+const RETIRED = [98, 94, 88.5, 88.3, 76, 75.5, 75, 60.5, 51.5, 35.5, 34, 88.9, 79.2, 64.8, 57.4];
+for (let i = COACH.length - 1; i >= 0; i--) if (RETIRED.includes(COACH[i].w)) COACH.splice(i, 1);
 
 /** Pick the best-matching rule and show today's wording of it. */
 function pickCoach() {
@@ -1794,7 +1816,7 @@ function importShortcutText(raw) {
     const stale = isFinite(segTo) && Date.now() - segTo > 36 * 3600000;
     const r = { ok: true, msg: `Synced ${ds.length} night${ds.length === 1 ? '' : 's'} from Apple Health · newest ${fmtDateLong(ds[ds.length - 1])}`,
       detail: `Received ${rows} sleep segments${span}.` + (stale ? ` The newest data is more than a day old. Either your watch hasn't synced last night to Health yet, or in Find Health Samples "Limit" is switched on and cuts off the newest nights. Switch Limit off.` : ''),
-      warn: stale };
+      warn: stale, date: ds[ds.length - 1] };
     state.lastSync = { at: Date.now(), ok: true, nights: ds.length, newest: ds[ds.length - 1], segments: rows, segTo: isFinite(segTo) ? segTo : null };
     save();
     return r;
@@ -1880,6 +1902,27 @@ function showSync(r) {
   }
   clearTimeout(showSync.t); if (r.ok && !r.warn) showSync.t = setTimeout(() => el.classList.add('hidden'), 15000);
   renderSyncStatus();
+  if (r.ok && r.date) showTagPrompt(r.date);
+}
+
+/** Right after a sync: one tap per tag for the newest night, so Habit Insights gets real data. Saves on every tap. */
+function showTagPrompt(date) {
+  const el = $('#tag-prompt'), n = state.nights.find(x => x.date === date); if (!el || !n) return;
+  const draw = () => {
+    el.className = 'mb-5 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-4 fade-up';
+    el.innerHTML = `<div class="flex items-start justify-between gap-3">
+        <div><p class="text-sm font-semibold">What happened yesterday?</p>
+          <p class="text-xs text-muted mt-0.5">Tags for the night to ${fmtDateLong(date)}. Tap all that apply; it saves on every tap.</p></div>
+        <button class="tp-done btn btn-primary !py-1.5 !px-3 !text-xs">Done</button></div>
+      <div class="flex flex-wrap gap-2 mt-3">${S().tags.map(t => `<button type="button" class="tp-tag chip chip-toggle ${(n.tags || []).includes(t) ? 'on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
+    el.querySelectorAll('.tp-tag').forEach(b => b.onclick = () => {
+      const t = b.dataset.tag; n.tags = n.tags || [];
+      n.tags = n.tags.includes(t) ? n.tags.filter(x => x !== t) : [...n.tags, t];
+      b.classList.toggle('on'); save(); renderInsights(); renderLog();
+    });
+    el.querySelector('.tp-done').onclick = () => { el.classList.add('hidden'); renderAll(); toast(n.tags.length ? `Tagged: ${n.tags.join(', ')}` : 'No tags for last night'); };
+  };
+  draw();
 }
 
 /** Always-visible line: when the iPhone shortcut last reached this page, and what it brought. */
@@ -1992,8 +2035,8 @@ function renderHero() {
   const delta = prev.length ? sc.total - Math.round(avg2(prev)) : null;
   const losses = [
     [40 - sc.dur, `${fmtDur(goalFor(last) - last.asleepMin)} short of your goal cost you ${40 - sc.dur} points.`],
-    [20 - sc.bed, `Going to bed ${Math.abs(sc.bedDev)}m ${sc.bedDev > 0 ? 'late' : 'early'} cost you ${20 - sc.bed} points.`],
-    [20 - sc.wake, `Getting up ${Math.abs(sc.wakeDev)}m ${sc.wakeDev > 0 ? 'late' : 'early'} cost you ${20 - sc.wake} points.`],
+    [20 - sc.bed, `Going to bed ${sc.bedDev}m late cost you ${20 - sc.bed} points.`],
+    [20 - sc.wake, `Getting up ${sc.wakeDev}m late cost you ${20 - sc.wake} points.`],
     [20 - sc.intr, `${sc.awake}m awake in the night cost you ${20 - sc.intr} points.`]
   ].sort((a, b) => b[0] - a[0])[0];
   const nudge = sc.red ? `Red night: ${redReasons(last).join(', ')}.${sc.capped ? ` The parts add up to ${sc.raw}, but red nights are capped at ${RED_SCORE_CAP}.` : ''}`
@@ -2005,10 +2048,10 @@ function renderHero() {
   const why = {
     dur: sc.dur >= 40 ? `${fmtDur(last.asleepMin)} asleep, goal reached`
       : `${fmtDur(last.asleepMin)} asleep, ${dShort(goalL - last.asleepMin)} under your ${dShort(goalL)} goal (0 points at ${dShort(goalL - 180)} or less)`,
-    bed: sc.bed >= 20 ? `in bed at ${fmtTime(last.bed)}, within ±${tol}m of target`
-      : `in bed at ${fmtTime(last.bed)}, ${late(sc.bedDev)}; first ${tol}m free, 0 points at ${dShort(tol + 90)}`,
-    wake: sc.wake >= 20 ? `up at ${fmtTime(last.wake)}, within ±${tol}m of target`
-      : `up at ${fmtTime(last.wake)}, ${late(sc.wakeDev)}; first ${tol}m free, 0 points at ${dShort(tol + 90)}`,
+    bed: sc.bed >= 20 ? (sc.bedDev < -5 ? `in bed at ${fmtTime(last.bed)}, ${late(sc.bedDev)} (early never costs points)` : `in bed at ${fmtTime(last.bed)}, on time`)
+      : `in bed at ${fmtTime(last.bed)}, ${late(sc.bedDev)}; first ${tol}m late free, 0 points at ${dShort(tol + 90)}`,
+    wake: sc.wake >= 20 ? (sc.wakeDev < -5 ? `up at ${fmtTime(last.wake)}, ${late(sc.wakeDev)} (early never costs points)` : `up at ${fmtTime(last.wake)}, on time`)
+      : `up at ${fmtTime(last.wake)}, ${late(sc.wakeDev)}; first ${tol}m late free, 0 points at ${dShort(tol + 90)}`,
     intr: sc.intr >= 20 ? `${sc.awake}m awake in the night, within the 15m allowed`
       : `${sc.awake}m awake in the night; 15m is free, no points from 75m`
   };
@@ -2019,27 +2062,12 @@ function renderHero() {
   const grad = sc.red ? ['#F87171', '#DC2626'] : sc.total >= 75 ? ['#34D399', '#6366F1'] : sc.total >= 60 ? ['#A5B4FC', '#6366F1'] : ['#FBBF24', '#F59E0B'];
   const [tierMin, tierName, tierHex] = st.tier, avgR = Math.round(st.avg7);
 
-  // "Tonight's stakes": what tonight's score does to the high-score streak, the tier and the 7-day average
-  const stake = (num, text, hex) => `<li class="flex items-start gap-3"><span class="shrink-0 min-w-[3rem] text-center rounded-lg px-2 py-1 text-sm font-bold" style="background:${hex}22;color:${hex}">${num}</span><span class="text-sm text-slate-300 leading-snug pt-0.5">${text}</span></li>`;
-  const stakes = [];
-  stakes.push(st.run > 0 ? stake(`${HIGH_SCORE}+`, `extends your high-score streak to <b class="text-crisp">${st.run + 1}</b>. Anything lower ends it.`, '#10B981')
-                         : stake(`${HIGH_SCORE}+`, `starts a high-score streak${st.bestRun ? `. Your record is ${st.bestRun}` : ''}.`, '#10B981'));
-  if (tierMin > 0) stakes.push(st.needTier > 100 ? stake('100', `wouldn't be enough to stay <b class="text-crisp">${tierName}</b> tonight. Limit the drop.`, '#F59E0B')
-    : st.needTier <= 0 ? stake('Safe', `in <b class="text-crisp">${tierName}</b> for one more night, but it's the last cushion you have.`, '#818CF8')
-    : stake(`${st.needTier}+`, `keeps you in <b class="text-crisp">${tierName}</b>. Less than that and you drop a tier.`, '#818CF8'));
-  if (st.up) stakes.push(st.needUp <= 100 ? stake(`${Math.max(st.needUp, 0)}+`, `lifts you to <b class="text-crisp">${st.up[1]}</b> tomorrow morning.`, '#34D399')
-    : stake(r1(st.up[0] - st.avg7), `points of 7-day average between you and <b class="text-crisp">${st.up[1]}</b>.`, '#34D399'));
-  stakes.push(Math.round(st.ifLow) < avgR
-    ? stake('60', `tonight would pull your average from ${avgR} down to <b class="text-warn">${Math.round(st.ifLow)}</b>.`, '#F59E0B')
-    : stake(`${RED_SCORE_CAP}`, `is the most a red night can score. A red night tonight would leave your average at <b class="text-red-400">${Math.round(st.ifRed)}</b>.`, '#EF4444'));
-
-  const wk = st.prev7 === null ? null : st.avg7 - st.prev7;
-  const chip = (label, value, sub, cls = 'text-crisp') => `<div class="rounded-2xl bg-obsidian/60 border border-line px-4 py-3"><p class="text-[11px] uppercase tracking-wider text-muted font-medium">${label}</p>
-      <p class="text-2xl font-bold mt-1 ${cls}">${value}</p><p class="text-[11px] text-muted mt-0.5">${sub}</p></div>`;
-  const byD = new Map(ns.map(n => [n.date, n]));
-  const bars = st.sc.slice(-14).map(x => { const hex = isRed(byD.get(x.date)) ? '#EF4444' : x.s >= HIGH_SCORE ? '#10B981' : x.s >= 60 ? '#6366F1' : '#F59E0B';
-    return `<button data-date="${x.date}" title="${fmtDateLong(x.date)} · score ${x.s}" class="score-bar flex-1 h-full flex flex-col justify-end items-center gap-1 min-w-0">
-      <span class="text-[10px] font-semibold" style="color:${hex}">${x.s}</span><i class="block w-full rounded-t-md" style="height:${Math.max(4, x.s * .8)}%;background:${hex}"></i></button>`; }).join('');
+  // One pressure line: the single most relevant thing tonight's score decides about the 7-day average and tier
+  let pNum, pText, pHex;
+  if (tierMin > 0 && st.needTier > 100) { pNum = '100'; pText = `wouldn't be enough to stay in <b class="text-crisp">${tierName}</b> tonight. Keep the drop small.`; pHex = '#F59E0B'; }
+  else if (tierMin > 0 && st.needTier >= 60) { pNum = `${st.needTier}+`; pText = `tonight keeps you in <b class="text-crisp">${tierName}</b>. Less than that and you drop a tier.`; pHex = '#F59E0B'; }
+  else if (st.up && st.needUp <= 100) { pNum = `${Math.max(st.needUp, 0)}+`; pText = `tonight lifts you to <b class="text-crisp">${st.up[1]}</b> tomorrow morning.`; pHex = '#10B981'; }
+  else { pNum = `${RED_SCORE_CAP}`; pText = `is the most a red night can score. One tonight would drop your 7-day average from ${avgR} to <b class="text-red-400">${Math.round(st.ifRed)}</b>.`; pHex = '#EF4444'; }
   const animate = ui.scoreShown !== last.date + ':' + sc.total;            // only animate when the score itself changed
   $('#score-card').innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
@@ -2047,7 +2075,7 @@ function renderHero() {
       <span class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border" style="color:${tierHex};border-color:${tierHex}55;background:${tierHex}1A">
         <i class="w-1.5 h-1.5 rounded-full" style="background:${tierHex}"></i>${tierName} tier · 7-day average ${r1(st.avg7)}</span>
     </div>
-    <div class="grid md:grid-cols-[auto_1fr] xl:grid-cols-[auto_1fr_1.15fr] gap-6 xl:gap-10 items-center">
+    <div class="grid md:grid-cols-[auto_1fr] gap-6 md:gap-10 items-center">
       <div class="relative w-44 h-44 sm:w-48 sm:h-48 mx-auto">
         <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" style="filter:drop-shadow(0 0 14px ${grad[0]}55)">
           <defs><linearGradient id="score-grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${grad[0]}"/><stop offset="1" stop-color="${grad[1]}"/></linearGradient></defs>
@@ -2064,22 +2092,10 @@ function renderHero() {
         ${delta === null ? '' : delta === 0 ? `<p class="text-xs mt-1 text-muted">Exactly your 7-day average</p>`
           : `<p class="text-xs mt-1 ${delta > 0 ? 'text-sage' : 'text-warn'}">${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)} vs your 7-day average</p>`}
       </div>
-      <div class="md:col-span-2 xl:col-span-1 rounded-2xl bg-obsidian/60 border border-line p-4">
-        <p class="text-[11px] uppercase tracking-wider text-muted font-semibold mb-3">Tonight's stakes</p>
-        <ul class="space-y-2.5">${stakes.join('')}</ul>
-      </div>
     </div>
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-6">
-      ${chip('High-score streak', `${st.run}<span class="text-sm font-medium text-muted ml-1">${st.run === 1 ? 'night' : 'nights'}</span>`, `in a row at ${HIGH_SCORE}+ · record ${st.bestRun}`, st.run ? 'text-sage' : 'text-warn')}
-      ${chip('7-day average', r1(st.avg7), wk === null ? 'first week of data' : Math.abs(wk) < 0.05 ? 'same as the week before' : `${wk > 0 ? '▲' : '▼'} ${r1(Math.abs(wk))} vs the week before`, wk !== null && wk < 0 ? 'text-warn' : 'text-crisp')}
-      ${chip('30-day average', r1(st.avg30), `${st.high30} of ${st.n30} nights at ${HIGH_SCORE}+`)}
-      ${chip('Personal best', st.best, st.best === sc.total ? 'matched last night' : `${st.best - sc.total} above last night`, 'text-indigo-300')}
-    </div>
-    <div class="mt-6">
-      <div class="flex items-center justify-between text-xs text-muted mb-2"><span class="font-semibold text-slate-300">Last ${Math.min(14, st.sc.length)} nights</span>
-        <span class="flex items-center gap-1.5"><i class="w-4 border-t border-dashed border-sage inline-block"></i>${HIGH_SCORE} line</span></div>
-      <div class="relative h-28"><div class="absolute inset-x-0 border-t border-dashed border-sage/50" style="bottom:${HIGH_SCORE * .8}%"></div>
-        <div class="relative flex items-end gap-1 sm:gap-1.5 h-full">${bars}</div></div>
+    <div class="flex items-center gap-3 mt-6 rounded-2xl bg-obsidian/60 border border-line px-4 py-3">
+      <span class="shrink-0 min-w-[3.25rem] text-center rounded-lg px-2 py-1 text-sm font-bold" style="background:${pHex}22;color:${pHex}">${pNum}</span>
+      <p class="text-sm text-slate-300 leading-snug">${pText}</p>
     </div>`;
   if (animate) { ui.scoreShown = last.date + ':' + sc.total; countUp($('#score-num'), sc.total); }
 
@@ -2099,12 +2115,9 @@ function renderHero() {
   const mileText = `${left} more night${left === 1 ? '' : 's'} to ${chaseRecord ? `beat your record of ${m.best}` : `the ${goalN}-night mark`}`
     + (m.streak > 0 && m.streak >= m.best ? ' · this is your longest streak ever' : '');
 
-  const tn = tonight(), pledged = !!state.pledges[tn.key];
-  const judged = Object.keys(state.pledges).map(k => byDate.get(k)).filter(Boolean);
-  const kept = judged.filter(n => Math.abs(deviations(n).bed) <= s.toleranceMin).length;
   $('#streak-card').innerHTML = `
     <div class="flex items-center justify-between mb-3"><h2 class="text-sm font-semibold">Streak on the Line</h2>
-      <span class="text-xs text-muted">${judged.length ? `Pledges kept ${kept} of ${judged.length}` : `Record ${m.best} night${m.best === 1 ? '' : 's'}`}</span></div>
+      <span class="text-xs text-muted">Record ${m.best} night${m.best === 1 ? '' : 's'}</span></div>
     <div class="flex items-center gap-4 sm:gap-6">
       <div class="text-center shrink-0"><p class="text-5xl sm:text-6xl font-bold tracking-tight leading-none ${m.streak ? 'text-sage' : 'text-warn'}">${m.streak}</p>
         <p class="text-[11px] uppercase tracking-wider text-muted mt-1.5">night streak</p></div>
@@ -2115,8 +2128,6 @@ function renderHero() {
       <p class="text-xs text-muted mt-1.5">${mileText}</p></div>
     <div class="flex flex-wrap items-center gap-2 mt-4">
       <button id="sk-log" class="btn btn-primary !py-2 hidden">Log last night</button>
-      ${pledged ? `<p class="text-sm text-indigo-200 rounded-xl bg-accent/10 border border-accent/25 px-3 py-2">You gave your word: in bed by ${fmtClock(targets().bed)} tonight. Don't break it.</p>`
-                : `<button id="sk-pledge" class="btn btn-ghost !py-2">Pledge: in bed by ${fmtClock(targets().bed)} tonight</button>`}
     </div>`;
 }
 
@@ -2150,7 +2161,39 @@ function tickStreak() {
   head.textContent = h; sub.textContent = s2;
   head.className = `text-base sm:text-lg font-semibold leading-snug ${hot ? 'text-warn' : 'text-crisp'}`;
   $('#sk-log')?.classList.toggle('hidden', !unlogged);
-  $('#sk-pledge')?.classList.toggle('hidden', now >= tn.bed || unlogged);
+}
+
+/** Night screen: from the start of wind-down until an hour before the wake target, show only what matters now.
+    Before bedtime: countdown to bed. After bedtime: countdown to the red-night line. After that: damage control. */
+function tickNight() {
+  const el = $('#night-screen'); if (!el) return;
+  const tn = tonight(), now = tn.now, t = targets();
+  const active = state.nights.length > 0 && now >= tn.dim && now < tn.wake - 3600000 && ui.nightOff !== tn.key;
+  el.classList.toggle('hidden', !active);
+  document.documentElement.style.overflow = active ? 'hidden' : '';
+  if (!active) return;
+  const redAt = tn.bed + (RED.bedLateMin - t.off) * 60000;
+  const cd = ms => { const x = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(x / 3600)}:${pad(Math.floor((x % 3600) / 60))}:${pad(x % 60)}`; };
+  const possible = Math.max(0, (tn.wake - now) / 60000 - S().latencyMin);
+  let label, big, sub, bigCls, phase;
+  if (now < tn.bed) { phase = 0; label = 'Wind-down · in bed in'; big = cd(tn.bed - now); bigCls = 'text-crisp';
+    sub = 'Lights low, screens away. The only thing left today is getting to bed.'; }
+  else if (now < redAt) { phase = 1; label = 'Past bedtime · turns red in'; big = cd(redAt - now); bigCls = 'text-warn';
+    sub = `Asleep now you'd still get ${fmtDur(possible)}. After ${fmtClock(minOfDay(redAt))} this becomes a red night.`; }
+  else { phase = 2; label = 'Red night'; big = fmtDur(possible); bigCls = 'text-red-400';
+    sub = `That's all the sleep left if you close your eyes now. Keep the alarm at ${fmtClock(t.wake)}; sleeping in only makes tomorrow night worse.`; }
+  $('#ns-label').textContent = label;
+  const b = $('#ns-big'); b.textContent = big; b.className = `text-6xl sm:text-7xl font-bold tracking-tight mt-3 ${bigCls}`;
+  $('#ns-sub').textContent = sub;
+  const step = (i, name, at, cls) => `<div class="flex items-center justify-between rounded-xl px-4 py-3 border ${i === phase ? 'bg-white/[0.05] border-line' : 'border-transparent'}">
+      <span class="text-sm ${i === phase ? 'text-crisp font-medium' : i < phase ? 'text-muted line-through decoration-white/20' : 'text-muted'}">${name}</span>
+      <span class="text-sm font-semibold ${cls}">${fmtClock(minOfDay(at))}</span></div>`;
+  const steps = step(0, 'In bed', tn.bed, 'text-crisp') + step(1, 'Red night after', redAt, 'text-red-400') + step(2, 'Up', tn.wake, 'text-crisp');
+  const st = $('#ns-steps'); if (st.dataset.sig !== steps) { st.innerHTML = steps; st.dataset.sig = steps; }
+  const m = ui.metrics, n = m ? m.streak : 0, sk = $('#ns-streak');
+  if (phase === 2) { sk.textContent = n ? `Your ${n}-night streak ends tonight.` : 'Tomorrow is night 1 again.'; sk.className = 'text-sm mt-6 leading-relaxed text-red-300'; }
+  else if (now < tn.deadline) { sk.textContent = n ? `Lights out by ${fmtClock(minOfDay(tn.deadline))} keeps your ${n}-night streak alive.` : `Lights out by ${fmtClock(minOfDay(tn.deadline))} starts a new streak.`; sk.className = 'text-sm mt-6 leading-relaxed text-sage'; }
+  else { sk.textContent = n ? `Too late to keep the ${n}-night streak. Don't let it turn red as well.` : 'Too late for a full night. Don’t let it turn red as well.'; sk.className = 'text-sm mt-6 leading-relaxed text-warn'; }
 }
 
 function kpiCard(i, label, value, sub, tone, extra = '') {
@@ -2164,7 +2207,7 @@ function kpiCard(i, label, value, sub, tone, extra = '') {
 function renderKPIs() {
   const m = computeMetrics(), s = S(), thr = fmtDur(goalNow() - s.bufferMin);
   if (!m) {
-    $('#kpis').innerHTML = [['Goal streak', `Nights ≥ ${thr}`], ['Consistency', `Within ±${s.toleranceMin}m of target`],
+    $('#kpis').innerHTML = [['Consistency', `Within ${s.toleranceMin}m of target`],
       ['7-day sleep debt', 'Against your weekly target'], ['Average sleep', '7-day and 30-day']]
       .map(([l, sub], i) => kpiCard(i, l, '—', sub, 'crisp')).join('');
     return;
@@ -2176,10 +2219,8 @@ function renderKPIs() {
   const debtTone = m.debt >= 0 ? 'sage' : 'warn';
   const avgDelta = m.avg7 - s.goalMin;
   $('#kpis').innerHTML = [
-    kpiCard(0, 'Goal streak', `${m.streak}${unit(m.streak === 1 ? 'night' : 'nights')}`,
-      `Nights in a row ≥ ${thr} · best ${m.best}`, m.streak > 0 ? 'sage' : 'warn'),
     kpiCard(1, 'Consistency', `${m.consistency}${unit('%')}`,
-      `${m.onCount} of ${m.cTotal} nights within ±${s.toleranceMin}m of schedule`, cTone, bar),
+      `${m.onCount} of ${m.cTotal} nights no more than ${s.toleranceMin}m late`, cTone, bar),
     kpiCard(2, m.debt >= 0 ? '7-day surplus' : '7-day sleep debt', `${m.debt >= 0 ? '+' : '−'}${fmtDur(m.debt)}`,
       `${fmtDur(m.w7Total)} of ${fmtDur(s.goalMin * m.w7Count).replace(' 00m', '')} target${m.w7Count < 7 ? ` · ${m.w7Count} of 7 nights logged` : ''}`, debtTone),
     kpiCard(3, 'Average sleep', fmtDur(m.avg7),
@@ -2562,7 +2603,6 @@ function init() {
   // Streak card buttons (the card is re-rendered, so delegate)
   $('#streak-card').addEventListener('click', e => {
     if (e.target.closest('#sk-log')) openNight(null);
-    if (e.target.closest('#sk-pledge')) { state.pledges[tonight().key] = Date.now(); save(); renderHero(); tickStreak(); toast('Pledge made. See you in bed on time.'); }
   });
 
   renderAll();
@@ -2570,7 +2610,11 @@ function init() {
   $('#paste-shortcut').onclick = () => { closeModals(); window.scrollTo(0, 0); pasteFromShortcut(); };
   renderSyncStatus(); setInterval(renderSyncStatus, 60000);
   let ticks = 0;
-  setInterval(() => { tickWindDown(); tickStreak(); if (++ticks % 20 === 0) renderCoach(); }, 1000);   // coach re-checks the situation every 20s
+  // Night screen: skipped for this page load if the shortcut just opened the app (so the sync and tags stay usable)
+  if (linkSync) ui.nightOff = tonight().key;
+  $('#ns-open').onclick = () => { ui.nightOff = tonight().key; tickNight(); };
+  tickNight();
+  setInterval(() => { tickWindDown(); tickStreak(); tickNight(); if (++ticks % 20 === 0) renderCoach(); }, 1000);   // coach re-checks the situation every 20s
   // Fonts load after first paint; redraw canvas labels once Inter is ready
   if (document.fonts?.ready) document.fonts.ready.then(() => Object.values(charts).forEach(c => c.update('none')));
 }
