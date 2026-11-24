@@ -139,6 +139,16 @@
   ::-webkit-scrollbar-thumb { background: rgb(var(--line-rgb)); border-radius: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
 
+  /* Morning reveal: each part fades in on its own beat */
+  .rv-hide { opacity: 0; transform: translateY(10px); transition: opacity .55s ease, transform .55s cubic-bezier(.2,.8,.2,1); }
+  .rv-hide.rv-in { opacity: 1; transform: none; }
+  #rv-icon.rv-hide { transform: scale(.35); transition: opacity .4s ease, transform .7s cubic-bezier(.34,1.56,.64,1); }
+  #rv-icon.rv-in { transform: scale(1); }
+  #rv-to.rv-hide { transform: scale(.4); transition: opacity .35s ease, transform .6s cubic-bezier(.34,1.56,.64,1); }
+  #rv-to.rv-in { transform: scale(1); }
+  .rv-spark { position: absolute; left: 50%; top: 32%; width: 8px; height: 8px; border-radius: 9999px; animation: rvBurst 1.4s cubic-bezier(.2,.8,.2,1) forwards; }
+  @keyframes rvBurst { from { transform: translate(-50%, -50%) scale(.5); opacity: 1; } to { transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) scale(1); opacity: 0; } }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
   }
@@ -161,6 +171,22 @@
     <button id="ns-open" class="mt-10 text-xs text-muted underline underline-offset-4 hover:text-crisp">Open the full app anyway</button>
   </div>
 </div>
+<!-- ───────────── Morning reveal: once per night, the verdict first, then the details ───────────── -->
+<div id="reveal" class="hidden fixed inset-0 z-[45] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Last night">
+  <div id="rv-burst" class="pointer-events-none fixed inset-0 overflow-hidden"></div>
+  <div class="relative min-h-full max-w-md mx-auto px-6 py-10 flex flex-col justify-center items-center text-center">
+    <p id="rv-date" class="rv-hide text-xs uppercase tracking-[.2em] text-muted font-semibold"></p>
+    <div id="rv-icon" class="rv-hide mt-7 w-28 h-28 rounded-full grid place-items-center border-2"></div>
+    <p id="rv-score" class="rv-hide text-7xl sm:text-8xl font-bold tracking-tight mt-7 leading-none">0</p>
+    <p id="rv-label" class="rv-hide text-xs uppercase tracking-widest text-muted mt-2"></p>
+    <div id="rv-streak" class="rv-hide mt-8"></div>
+    <p id="rv-mile" class="rv-hide hidden mt-4 rounded-full px-4 py-1.5 text-sm font-semibold"></p>
+    <p id="rv-line" class="rv-hide text-lg font-medium mt-7 leading-snug"></p>
+    <p id="rv-action" class="rv-hide text-sm text-slate-300 mt-2 leading-relaxed"></p>
+    <button id="rv-close" class="rv-hide btn btn-primary mt-9">See the details</button>
+  </div>
+</div>
+
 <div class="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 pb-16">
 
   <!-- ───────────── Header ───────────── -->
@@ -219,7 +245,6 @@
         <p id="coach-tip-title" class="text-[11px] uppercase tracking-wider font-semibold text-indigo-300"></p>
         <p id="coach-tip-body" class="text-sm text-slate-300 leading-relaxed mt-1"></p>
       </div>
-      <p id="coach-foot" class="text-[11px] text-muted/70 mt-1.5"></p>
     </div>
   </section>
 
@@ -255,7 +280,6 @@
       <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
         <div>
           <h2 class="text-sm font-semibold">Sleep Consistency Timeline</h2>
-          <p class="text-xs text-muted mt-0.5">Bedtime → wake-up window per night. Tap a bar to edit or tag it.</p>
         </div>
         <div class="seg range-seg"><button data-range="14">14</button><button data-range="30">30</button><button data-range="90">90</button></div>
       </div>
@@ -288,8 +312,7 @@
     <div class="card p-5 sm:p-6 lg:col-span-2 fade-up">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-1">
         <div>
-          <h2 class="text-sm font-semibold">8-Hour Target</h2>
-          <p class="text-xs text-muted mt-0.5">Total time asleep each night against your goal.</p>
+          <h2 class="text-sm font-semibold">Time Asleep</h2>
         </div>
         <div class="seg range-seg"><button data-range="14">14</button><button data-range="30">30</button><button data-range="90">90</button></div>
       </div>
@@ -303,7 +326,7 @@
 
     <div class="card p-5 sm:p-6 fade-up flex flex-col">
       <h2 class="text-sm font-semibold mb-1">Habit Insights</h2>
-      <p class="text-xs text-muted mb-4">Which tags go with nights that hit your goal.</p>
+      <p class="text-xs text-muted mb-4">Which habits go with nights that get a check.</p>
       <div id="insights" class="flex-1"></div>
     </div>
   </section>
@@ -429,8 +452,8 @@
       <div><label class="label" for="st-goal">Sleep goal (hours)</label><input id="st-goal" type="number" min="4" max="12" step="0.25" class="field"></div>
       <div><label class="label" for="st-latency">Time to fall asleep (min)</label><input id="st-latency" type="number" min="0" max="120" step="5" class="field"></div>
       <div><label class="label" for="st-winddown">Wind-down lead (min)</label><input id="st-winddown" type="number" min="0" max="240" step="5" class="field"></div>
-      <div><label class="label" for="st-buffer">Streak buffer (min)</label><input id="st-buffer" type="number" min="0" max="120" step="5" class="field"></div>
-      <div><label class="label" for="st-tolerance">Consistency window (± min)</label><input id="st-tolerance" type="number" min="5" max="120" step="5" class="field"></div>
+      <div><label class="label" for="st-buffer">Check counts this much under goal (min)</label><input id="st-buffer" type="number" min="0" max="120" step="5" class="field"></div>
+      <div><label class="label" for="st-tolerance">Late minutes that cost no points</label><input id="st-tolerance" type="number" min="5" max="120" step="5" class="field"></div>
     </div>
     <p id="st-note" class="text-xs text-muted mt-3"></p>
     <div class="border-t border-line mt-5 pt-4">
@@ -700,8 +723,10 @@ function computeMetrics() {
   const c14 = within(14), w7 = within(7), w30 = within(30);
   return {
     last, streak, best,
-    consistency: Math.round(avg2(c14.map(nightScore))), onCount: c14.filter(onSchedule).length, cTotal: c14.length,
-    debt: sum(w7) - S().goalMin * w7.length, w7Total: sum(w7), w7Count: w7.length,
+    // Consistency = share of the last 14 nights whose timing was good enough for a check (same rule as the streak)
+    consistency: Math.round(100 * c14.filter(lateOk).length / c14.length), onCount: c14.filter(lateOk).length, cTotal: c14.length,
+    // Debt is measured against 7h 45m, the same line that earns a check
+    debt: sum(w7) - w7.reduce((s, n) => s + okFor(n), 0), w7Total: sum(w7), w7Count: w7.length, w7Target: w7.reduce((s, n) => s + okFor(n), 0),
     avg7: avg(w7), avg30: avg(w30), n30: w30.length
   };
 }
@@ -844,6 +869,14 @@ function coachCtx() {
   const MILES = [3, 7, 14, 21, 30, 60, 100, 180, 365];
   c.mile = L.ok && MILES.includes(c.streak) ? c.streak : 0; c.next = MILES.find(x => x > c.streak) || c.streak + 1; c.left = c.next - c.streak;
   c.record = c.streak >= 2 && c.streak >= c.best && all.length > c.streak; c.toRecord = c.best - c.streak;
+  // Identity: "a 23:00 sleeper" once 8 of the last 10 nights were on time; a note only on the day it's first earned or hits 10 of 10
+  const ns0 = sortedNights(), idNow = identityStats(ns0, ns0.length - 1), idPrev = identityStats(ns0, ns0.length - 2);
+  c.ident = idNow; c.identText = identityText(idNow);
+  c.identNew = !!c.identText && L.sched && (!identityText(idPrev) || (idNow.k === 10 && idPrev.k < 10));
+  // Fresh start: Monday or the 1st of the month (by today's date), shown in the morning and during the day
+  const today = new Date(); c.freshMonth = today.getDate() === 1; c.freshWeek = today.getDay() === 1;
+  c.fresh = (c.freshMonth || c.freshWeek) && (c.phase === 'morning' || c.phase === 'day');
+  c.checks7 = all.filter(x => { const d = dayDiff(L.date, x.date); return d >= 1 && d <= 7; }).filter(x => x.ok).length;   // the 7 nights before last night
   const ss = scoreStats();                                                // score streak, tier and tonight's requirements
   c.sc = { run: ss.run, lostRun: ss.lostRun, bestRun: ss.bestRun, avg: Math.round(ss.avg7 * 10) / 10, tier: ss.tier[1], tierMin: ss.tier[0],
     up: ss.up ? ss.up[1] : null, upGap: ss.up ? Math.round((ss.up[0] - ss.avg7) * 10) / 10 : null, down: ss.down ? ss.down[1] : null,
@@ -865,7 +898,7 @@ function coachCtx() {
   c.pastMid7 = w7.filter(x => x.afterMid).length;
   c.scoreDown3 = three && l3[0].score > l3[1].score && l3[1].score > l3[2].score && l3[0].score - l3[2].score >= 15;
   c.scoreUp3 = three && l3[0].score < l3[1].score && l3[1].score < l3[2].score && l3[2].score - l3[0].score >= 15;
-  c.debtDelta = P ? c.debt - all.filter(x => { const d = dayDiff(P.date, x.date); return d >= 0 && d < 7; }).reduce((a, x) => a + x.asleep - s.goalMin, 0) : 0;
+  c.debtDelta = P ? c.debt - all.filter(x => { const d = dayDiff(P.date, x.date); return d >= 0 && d < 7; }).reduce((a, x) => a + x.asleep - (s.goalMin - s.bufferMin), 0) : 0;   // same 7h 45m line as the debt itself
   c.hitRateAll = Math.round(all.filter(x => x.ok).length / all.length * 100);
   const m30 = all.filter(x => dayDiff(L.date, x.date) < 30); c.hits30 = m30.filter(x => x.ok).length;
   c.worstDow = null; c.tonightWorst = false;
@@ -1000,6 +1033,16 @@ R(71, 'info', c => c.phase === 'evening',
 R(70, 'warn', c => !c.night && !c.L.hit && c.lost >= 1 && c.thr - c.L.asleep <= 15,
   c => `You lost a ${c.lost}-night streak by ${c.thr - c.L.asleep} minutes. That's one video, one more scroll. Remember this number tonight.`,
   c => `${c.thr - c.L.asleep} minutes. That's all that separated you from night ${c.lost + 1}. Going to bed a quarter of an hour sooner would have saved it.`);
+/* — Fresh start (Monday / 1st of the month) and identity — */
+R(66.9, 'good', c => !c.night && c.identNew,
+  c => `You're ${c.identText}. ${c.ident.k} of your last 10 nights.\nThat's not a goal any more, it's a description. People keep habits that match who they think they are, so let this one be true about you.`,
+  c => `Officially ${c.identText}: ${c.ident.k} of 10.\nNot because of one great night, because of ten ordinary ones. Keep being that person tonight.`);
+R(66.8, 'good', c => c.fresh && c.n >= 3,
+  c => c.freshMonth
+    ? (c.checks7 >= 5 ? `New month. You're carrying ${c.checks7} checks from last week into it.\nFresh starts work best when you bring the good habits along. Same bedtime, same alarm, new page.`
+                      : `New month. Clean slate.\nWhatever last month was, it's closed. The best moment to reset a habit is a date like today. In bed by ${c.bed}, up at ${c.wake}, and day 1 of the month counts.`)
+    : (c.checks7 >= 5 ? `New week. Last week you got ${c.checks7} checks out of 7.\nThat's the standard now. Monday night sets the tone for the whole week: in bed by ${c.bed}.`
+                      : `New week. Clean slate.\nLast week had ${c.checks7} check${c.checks7 === 1 ? '' : 's'}, and it's over. People stick to new habits best when they start at a fresh line like a Monday. Tonight is night 1 of a better week: in bed by ${c.bed}.`));
 R(69.5, 'warn', c => !c.night && c.lost >= 14,
   c => `A ${c.lost}-night streak ended last night. That's two weeks and more of discipline. It should sting. Use it: tonight is night 1.`);
 R(69, 'warn', c => !c.night && c.lost >= 7,
@@ -1105,12 +1148,12 @@ R(53, 'warn', c => !c.night && c.L.score < 60 && c.L.hit,
 R(52.5, 'good', c => !c.night && c.hasBest && c.L.hit,
   c => `${c.tagBest.name} again, goal hit again. On those nights you succeed ${c.tagBest.rate}% of the time, against ${c.tagBest.base}% otherwise. Keep doing it.`);
 R(52, 'good', c => !c.night && c.L.score >= 90,
-  c => `Score ${c.L.score}. An excellent night. Protect the routine that produced it.`,
-  c => `${c.L.score} points. Nights like this are the reason the streak matters.`);
+  c => `An excellent night. Protect the routine that produced it.`,
+  c => `Nights like this are the reason the streak matters.`);
 R(51.5, 'good', c => !c.night && c.lastPledge === 'kept',
   c => `You pledged ${c.bed} and kept it. That's the whole mechanism: say it, then do it. Pledge again tonight.`);
 R(51, 'warn', c => !c.night && !c.L.hit && c.L.short <= 45,
-  c => `${D(c.L.short)} short of 8 hours. Close, and close doesn't count. That gap is exactly the size of "five more minutes".`);
+  c => `${D(c.thr - c.L.asleep)} short of ${D(c.thr)}. Close, and close doesn't count. That gap is exactly the size of "five more minutes".`);
 R(50.5, 'warn', c => !c.night && c.avg7 < c.avg30 - 20 && c.n30 >= 14,
   c => `This week you're averaging ${D(c.avg7 - c.avg30)} less than your 30-day norm. You're slipping against your own standard.`);
 R(50.2, 'good', c => !c.night && c.w7 === 7 && c.hits7 === 6,
@@ -1439,7 +1482,7 @@ V(60.5, c => `Pledged ${c.bed}. Actually in bed: ${c.L.bedClock}.\nA promise to 
 V(51.5, c => `Pledge made, pledge kept: in bed at ${c.L.bedClock}. Every one you keep makes the next one easier to believe.`);
 V(47, c => `A short night behind you. Today you'll want sugar, extra coffee and a long nap. All three make tonight worse. Daylight, normal meals, bed at ${c.bed}.`);
 V(38, c => `Rested morning. Spend ten minutes of it outside: morning light is what sets the timer for tonight's sleepiness.`);
-V(43.5, c => `${D(c.L.asleep)}: inside the buffer, so the streak holds, but under 8 hours. Two or three of these in a row and you're in debt with a streak still showing.`);
+V(43.5, c => `${D(c.L.asleep)}: enough for the check, but under 8 hours. Fine once in a while; as a habit it keeps you on the edge of the line.`);
 V(36, c => `${pl(c.streak, 'night')} and counting, ${c.left} from the ${c.next}-night mark. Nothing to do about it until this evening, except not sabotage it.`);
 V(45, c => `${c.L.bedClock} to ${c.L.wakeClock}, ${D(c.L.asleep)} asleep. On schedule at both ends. This is the night you're trying to make boringly normal.`);
 V(20, c => `No tags on last night. Thirty seconds now gives me something to work with: caffeine, workout, screens, alcohol, whatever was true yesterday.`);
@@ -1455,14 +1498,35 @@ const RETIRED = [98, 94, 88.5, 88.3, 76, 75.5, 75, 60.5, 51.5, 35.5, 34, 88.9, 7
 for (let i = COACH.length - 1; i >= 0; i--) if (RETIRED.includes(COACH[i].w)) COACH.splice(i, 1);
 
 /** Pick the best-matching rule and show today's wording of it. */
+/* Coach memory: the last 10 wordings shown (notes and tips together), so the same text doesn't come back soon.
+   While the same note or tip topic stays on top, its wording is kept for the rest of the day, so it doesn't
+   change on every refresh. Kept in its own storage key, outside the sleep data and backups. */
+const COACH_MEM_KEY = 'nocturne.coach.v1', COACH_RECENT = 10;
+const coachMem = (() => {
+  try { const m = JSON.parse(localStorage.getItem(COACH_MEM_KEY) || '{}'); return { recent: Array.isArray(m.recent) ? m.recent : [], hold: m.hold && typeof m.hold === 'object' ? m.hold : {} }; }
+  catch (e) { return { recent: [], hold: {} }; }
+})();
+/** Which of `count` wordings to show for rule/topic `id`: today's held pick, else one not among the last 10 (or the one shown longest ago). */
+function pickVariant(kind, id, count) {
+  const today = dateKey(new Date()), h = coachMem.hold[kind];
+  if (h && h.id === id && h.day === today && h.i < count) return h.i;
+  const key = i => `${id}:${i}`, seen = i => coachMem.recent.lastIndexOf(key(i));      // −1 = not shown recently
+  const day = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / DAY);
+  const order = [...Array(count).keys()].map(k => (k + day) % count);                     // daily starting point for variety
+  const i = order.sort((a, b) => seen(a) - seen(b))[0];                                   // stable sort: unseen first, then oldest
+  coachMem.hold[kind] = { id, day: today, i };
+  coachMem.recent = coachMem.recent.filter(k => k !== key(i)).concat(key(i)).slice(-COACH_RECENT);
+  try { localStorage.setItem(COACH_MEM_KEY, JSON.stringify(coachMem)); } catch (e) { /* storage blocked: rotation still works for this visit */ }
+  return i;
+}
+
 function pickCoach() {
   const c = coachCtx(); let best = null;
   // If the most recent night isn't logged, "last night" in the log is really an older night, so only
   // use notes that don't talk about it: the log reminders by day, the generic time-based ones at night.
   const only = c.n && c.unlogged ? (c.night ? [99.8, 99.7, 99.5, 99, 95, 91, 89.5, 86] : [82, 81, 80]) : null;
   for (const r of COACH) { let ok = false; if (only && !only.includes(r.w)) continue; try { ok = !!r.when(c); } catch (e) { /* rule needs data that isn't there */ } if (ok && (!best || r.w > best.w)) best = r; }
-  const day = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / DAY);
-  let text; try { text = best.msgs[(day + COACH.indexOf(best)) % best.msgs.length](c); } catch (e) { text = COACH.find(r => r.w === 1).msgs[0](c); }
+  let text; try { text = best.msgs[pickVariant('note', `n${COACH.indexOf(best)}`, best.msgs.length)](c); } catch (e) { text = COACH.find(r => r.w === 1).msgs[0](c); }
   let tip = null; try { tip = pickTip(c); } catch (e) { /* no tip for this situation */ }
   return { text, tone: best.tone, tip, c };
 }
@@ -1540,17 +1604,17 @@ const TIPS = {
   ]],
   // After a good night (score 80+, not red): praise instead of advice
   praise: ['Well done', [
-    c => `${c.L.score} last night. In bed at ${c.L.bedClock}, up at ${c.L.wakeClock}, ${D(c.L.asleep)} asleep. That's exactly the kind of night this is all about.`,
+    c => `That's exactly the kind of night this is all about. Nothing heroic, just the plan, followed.`,
     c => c.streak >= 2 ? `${c.streak} good nights in a row. Each one was decided in the evening, when staying up would have been easier. That's real discipline.`
                        : `A strong night to build on. One good night is all a streak needs to begin.`,
     c => c.L.parts.bed === 20 && c.L.parts.wake === 20 ? `On time at both ends, bed and alarm. Timing is the hardest part of good sleep, and you got it right.`
                                                        : `${D(c.L.asleep)} of sleep. Your body got what it needed. Notice how today feels compared with a short night.`,
     c => c.L.awake <= 15 ? `Only ${c.L.awake} minutes awake all night. Unbroken sleep like that is the most restoring kind.`
-                         : `A good night: ${c.L.score} points. A few small things to polish, nothing that needs fixing.`,
+                         : `A few small things to polish, nothing that needs fixing. Same evening again tonight.`,
     c => `Your 7-day average is ${c.sc.avg}, ${c.sc.tier} tier. Nights like last night are what hold it there.`,
     c => `This is what consistency looks like from the inside: nothing dramatic, just a normal evening and a normal morning. Good work.`,
     c => `You gave yourself a full night when there were plenty of reasons not to. Today you get the reward: steadier focus, better mood, fewer cravings.`,
-    c => c.L.score >= 95 ? `${c.L.score}. That's about as good as a night gets. Enjoy it.` : `A solid ${c.L.score}. Good nights don't need to be perfect, they need to be repeated, and you're doing that.`
+    c => c.L.score >= 95 ? `That's about as good as a night gets. Enjoy it.` : `Good nights don't need to be perfect, they need to be repeated, and you're doing that.`
   ]],
   score: ['How to raise your score', [
     c => `Your score has four parts: duration (40 points), bedtime (20), wake time (20) and interruptions (20). The two timing parts are the easiest 40 points you can get, because they only depend on being in bed by ${c.bed} and up by ${c.wake}, within ${c.tol} minutes. Get those right every night and a score in the 80s needs only a decent amount of sleep.`,
@@ -1581,24 +1645,19 @@ function pickTip(c) {
       topic = loss[0][1] >= 0.25 ? loss[0][0] : 'score';
     }
   }
-  const [title, list] = TIPS[topic], day = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / DAY);
-  return { title, text: list[(day + topic.length) % list.length](c), praise: topic === 'praise' };
+  const [title, list] = TIPS[topic];
+  return { title, text: list[pickVariant('tip', `t-${topic}`, list.length)](c), praise: topic === 'praise' };
 }
 /** Daily feedback on last night: what went well and what to work on, each point with the actual numbers. */
 function nightFeedback(c) {
   if (!c.n || !c.L) return null;
   const L = c.L, P = c.P, good = [], bad = [], thr = c.thr, tol = c.tol, ds = m => (Math.abs(m) < 60 ? `${Math.abs(Math.round(m))}m` : D(m).replace(' 00m', ''));
-  // Duration
-  if (L.asleep >= thr) good.push(`${D(L.asleep)} asleep, goal of ${ds(thr)} reached`);
-  else bad.push(`${D(L.asleep)} asleep, ${ds(thr - L.asleep)} short of ${ds(thr)}`);
-  // Bedtime and wake time (early is fine)
-  if (L.bedDev <= tol) good.push(L.bedDev < -5 ? `In bed at ${L.bedClock}, ${ds(L.bedDev)} early` : `In bed on time at ${L.bedClock}`);
-  else bad.push(`In bed at ${L.bedClock}, ${ds(L.bedDev)} late`);
-  if (L.wakeDev <= tol) good.push(L.wakeDev < -5 ? `Up at ${L.wakeClock}, ${ds(L.wakeDev)} early` : `Up on time at ${L.wakeClock}`);
-  else bad.push(`Up at ${L.wakeClock}, ${ds(L.wakeDev)} late`);
-  // Interruptions
-  if (L.awake <= 15) good.push(`Only ${L.awake}m awake during the night`);
-  else if (L.awake >= 30) bad.push(`${L.awake}m awake during the night`);
+  // Duration, bedtime, wake-up and night-time waking already have their own lines on the score card,
+  // so only what went wrong is repeated here (as something to work on); the good side lists what the card doesn't show
+  if (L.asleep < thr) bad.push(`${ds(thr - L.asleep)} short of ${ds(thr)}`);
+  if (L.bedDev > tol) bad.push(`In bed ${ds(L.bedDev)} late`);
+  if (L.wakeDev > tol) bad.push(`Up ${ds(L.wakeDev)} late`);
+  if (L.awake >= 30) bad.push(`${L.awake}m awake during the night`);
   // Red night
   if (L.red.length) bad.unshift(`Red night: ${L.red.join(', ')}`);
   // Compared with the night before and the week
@@ -1619,7 +1678,7 @@ function nightFeedback(c) {
   // Habits from your own data
   if (c.hasWorst) bad.push(`${c.tagWorst.name}: nights with it reach the goal only ${c.tagWorst.rate}% of the time`);
   if (c.hasBest) good.push(`${c.tagBest.name}: nights with it reach the goal ${c.tagBest.rate}% of the time`);
-  return { good: good.slice(0, 5), bad: bad.slice(0, 5) };
+  return { good: good.slice(0, 2), bad: bad.slice(0, 2) };
 }
 
 function renderCoach() {
@@ -1644,7 +1703,6 @@ function renderCoach() {
     if (rv.dataset.sig !== html) { rv.innerHTML = html; rv.dataset.sig = html; }
   }
   $('#coach').style.borderLeftColor = { good: '#10B981', warn: '#F59E0B', info: '#6366F1' }[pick.tone];
-  $('#coach-foot').textContent = `Picked for right now from ${COACH.reduce((s, r) => s + r.msgs.length, 0)} pre-written notes and ${Object.values(TIPS).reduce((s, t) => s + t[1].length, 0)} tips`;
 }
 
 /* ───────────── 5. Importer (Apple Health CSV / JSON) ───────────── */
@@ -2045,11 +2103,13 @@ function renderSyncStatus() {
   const l = state.lastSync;
   const ago = ms => { const m = Math.round((Date.now() - ms) / 60000);
     return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
-  let dot = 'bg-white/20', text = 'iPhone sync: never. The shortcut hasn’t reached this page in this browser yet.';
-  if (l && l.ok) { const old = l.segTo && Date.now() - l.segTo > 36 * 3600000; dot = old ? 'bg-warn' : 'bg-sage';
-    text = `iPhone sync: ${ago(l.at)} · ${l.nights} night${l.nights === 1 ? '' : 's'} · newest ${fmtDateLong(l.newest)}${old ? ' (old data)' : ''}`; }
+  // Only shown when something needs attention: a failed sync, old data, or no sync and no nights yet
+  let dot = 'bg-white/20', text = state.nights.length && !state.isSample ? '' : 'iPhone sync: never. The shortcut hasn’t reached this page in this browser yet.';
+  if (l && l.ok) { const old = l.segTo && Date.now() - l.segTo > 36 * 3600000; dot = 'bg-warn';
+    text = old ? `iPhone sync: ${ago(l.at)} · newest night ${fmtDateLong(l.newest)} (old data)` : ''; }
   else if (l) { dot = 'bg-warn'; text = `iPhone sync: failed ${ago(l.at)} · ${l.error}`; }
-  el.innerHTML = `<i class="w-1.5 h-1.5 rounded-full shrink-0 ${dot}"></i><span class="truncate">${esc(text)}</span>`;
+  el.classList.toggle('hidden', !text);
+  el.innerHTML = text ? `<i class="w-1.5 h-1.5 rounded-full shrink-0 ${dot}"></i><span class="truncate">${esc(text)}</span>` : '';
 }
 
 async function handleFiles(fileList) {
@@ -2128,6 +2188,119 @@ function renderAll() {
   $('#header-sub').textContent = `In bed by ${fmtClock(t.bed)} · up at ${fmtClock(t.wake)}`;
   $('#row-hero').classList.toggle('hidden', !has);
   renderHero(); renderKPIs(); renderInsights(); renderLog(); renderCharts(); renderProgress(); tickWindDown(); tickStreak(); renderCoach();
+  maybeReveal();
+}
+
+/* ───────────── Morning reveal ─────────────
+   The first time the app opens after a new night arrives (sync or manual entry), it shows only the verdict:
+   ✓ / ✕ / red, the score counting up, the streak changing, one line and one action. Once per night. */
+const REVEAL_KEY = 'nocturne.reveal.v1', MILESTONES = [3, 7, 14, 21, 30, 60, 100, 180, 365];
+const REVEAL_PRAISE = [
+  'Clean night. Your future self says thanks.', 'That’s how it’s done. Quietly, on time.', 'Another one in the bank.',
+  'Nothing heroic, just the plan, followed.', 'Your body got exactly what it asked for.', 'Good night, good morning. Keep the loop going.',
+  'Steady wins. That was steady.', 'This is what rested feels like. Notice it.'
+];
+/** Identity over the 10 days ending at night index i: on time to bed / out of bed (within the free minutes; early counts). */
+function identityStats(ns, i) {
+  if (i < 0 || !ns[i]) return { n: 0, bed: 0, wake: 0, k: 0 };
+  const end = ns[i].date, w = ns.slice(0, i + 1).filter(n => dayDiff(end, n.date) < 10), tol = S().toleranceMin;
+  const bed = w.filter(n => deviations(n).bed <= tol).length, wake = w.filter(n => deviations(n).wake <= tol).length;
+  const k = bed >= 8 && wake >= 8 ? Math.min(bed, wake) : bed >= 8 ? bed : wake >= 8 ? wake : 0;
+  return { n: w.length, bed, wake, k };
+}
+/** "a 23:00 sleeper and a 7:15 riser", or '' while not earned (8 of the last 10 nights). */
+function identityText(id) {
+  if (!id || id.n < 8) return '';
+  const t = targets(), b = id.bed >= 8 ? `a ${fmtClock(t.bed)} sleeper` : '', w = id.wake >= 8 ? `a ${fmtClock(t.wake)} riser` : '';
+  return [b, w].filter(Boolean).join(' and ');
+}
+/** Streak length ending at night index i (consecutive calendar nights with a check). */
+function streakAt(ns, i) { let k = 0; for (let j = i; j >= 0; j--) { if (!goalHit(ns[j]) || (j < i && dayDiff(ns[j + 1].date, ns[j].date) !== 1)) break; k++; } return k; }
+
+function maybeReveal() {
+  const el = $('#reveal'); if (!el || !el.classList.contains('hidden') || state.isSample) return;
+  const ns = sortedNights(), last = ns[ns.length - 1]; if (!last) return;
+  const tn = tonight();
+  if (last.date !== tn.prevKey && last.date !== tn.key) return;                        // only for the night that just ended
+  if (!$('#night-screen').classList.contains('hidden')) return;
+  let seen = ui.revealSeen; try { seen = localStorage.getItem(REVEAL_KEY) || seen; } catch (e) { /* storage blocked */ }
+  if (seen === last.date) return;
+  ui.revealSeen = last.date; try { localStorage.setItem(REVEAL_KEY, last.date); } catch (e) { /* shown once per visit instead */ }
+  showReveal(ns, last);
+}
+
+function showReveal(ns, last) {
+  const el = $('#reveal'), v = verdict(last), sc = sleepScore(last), t = targets();
+  const hex = { check: '#10B981', miss: '#F59E0B', red: '#EF4444' }[v];
+  const prev = ns[ns.length - 2], after = streakAt(ns, ns.length - 1);
+  const before = v === 'check' ? after - 1 : prev && dayDiff(last.date, prev.date) === 1 ? streakAt(ns, ns.length - 2) : 0;
+  const mile = v === 'check' && MILESTONES.includes(after);
+  el.style.background = `radial-gradient(75% 55% at 50% 28%, ${hex}38, transparent 70%), rgb(var(--bg-rgb))`;
+
+  $('#rv-date').textContent = `${fmtDateLong(last.date)} · last night`;
+  const icon = $('#rv-icon');
+  icon.style.cssText = `border-color:${hex};background:${hex}${v === 'red' ? '33' : '1F'};color:${hex};box-shadow:0 0 60px ${hex}55`;
+  icon.innerHTML = v === 'check'
+    ? '<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>'
+    : '<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+  const scoreEl = $('#rv-score'); scoreEl.textContent = '0'; scoreEl.style.color = hex;
+  $('#rv-label').textContent = v === 'red' ? 'Red night' : `${sc.label} · ${v === 'check' ? 'check' : 'no check'}`;
+
+  // Streak: old number → new number
+  const toCls = v === 'check' ? 'text-sage' : v === 'red' ? 'text-red-400' : 'text-warn';
+  $('#rv-streak').innerHTML = `<div class="flex items-baseline justify-center gap-3 text-4xl font-bold tracking-tight">
+      <span class="text-muted">${before}</span><span class="text-muted text-2xl">→</span><span id="rv-to" class="rv-hide inline-block ${toCls}">${after}</span></div>
+    <p class="text-[11px] uppercase tracking-wider text-muted mt-1.5">night streak</p>`;
+  const mileEl = $('#rv-mile');
+  mileEl.classList.toggle('hidden', !mile);
+  if (mile) { mileEl.textContent = `${after}-night milestone`; mileEl.style.cssText = `background:${hex}22;color:${hex};border:1px solid ${hex}55`; }
+
+  // One line and one action
+  const bed = fmtClock(t.bed), wake = fmtClock(t.wake), cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+  let line, action;
+  if (v === 'check') {
+    line = mile ? `${after} nights in a row. That’s not luck anymore.` : REVEAL_PRAISE[pickVariant('reveal', 'r-check', REVEAL_PRAISE.length)];
+    const next = MILESTONES.find(x => x > after);
+    action = `Tonight: in bed by ${bed} makes it ${after + 1}${next === after + 1 ? `, your ${next}-night milestone` : ''}.`;
+  } else if (v === 'miss') {
+    line = `No check: ${noCheckWhy(last)}.`;
+    action = deviations(last).wake > WAKE_LATE ? `Tonight: in bed by ${bed}, and up by ${wake} tomorrow.` : `Tonight: in bed by ${bed}. Night 1 starts there.`;
+  } else {
+    line = `${cap(redReasons(last).join(', '))}.`;
+    action = `Damage control tonight: in bed by ${bed}. Alarm stays at ${wake}.`;
+  }
+  $('#rv-line').textContent = line; $('#rv-action').textContent = action;
+
+  // Play it: reset, then bring each part in on its beat
+  const parts = ['#rv-date', '#rv-icon', '#rv-score', '#rv-label', '#rv-streak', '#rv-to', '#rv-mile', '#rv-line', '#rv-action', '#rv-close'];
+  parts.forEach(s => $(s)?.classList.remove('rv-in'));
+  $('#rv-burst').innerHTML = '';
+  el.classList.remove('hidden');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const at = (ms, fn) => ui.revealTimers.push(setTimeout(fn, calm ? 0 : ms));
+  (ui.revealTimers || []).forEach(clearTimeout); ui.revealTimers = [];
+  const show = (...sel) => sel.forEach(s => $(s)?.classList.add('rv-in'));
+  at(80, () => show('#rv-date'));
+  at(350, () => show('#rv-icon'));
+  at(900, () => { show('#rv-score', '#rv-label'); countUp(scoreEl, sc.total); });
+  at(2000, () => show('#rv-streak'));
+  at(2500, () => { show('#rv-to'); if (mile) { show('#rv-mile'); burst(hex); } });
+  at(3000, () => show('#rv-line', '#rv-action', '#rv-close'));
+  if (calm) scoreEl.textContent = sc.total;
+}
+
+/** A small burst of sparks from the icon, for milestones only. */
+function burst(hex) {
+  const box = $('#rv-burst'), colors = [hex, '#A5B4FC', '#FBBF24', '#F8FAFC'];
+  box.innerHTML = [...Array(28)].map((_, i) => {
+    const a = (i / 28) * Math.PI * 2, r = 120 + Math.random() * 140;
+    return `<i class="rv-spark" style="--x:${Math.round(Math.cos(a) * r)}px;--y:${Math.round(Math.sin(a) * r)}px;background:${colors[i % colors.length]};animation-delay:${Math.round(Math.random() * 120)}ms"></i>`;
+  }).join('');
+}
+
+function closeReveal() {
+  (ui.revealTimers || []).forEach(clearTimeout); ui.revealTimers = [];
+  $('#reveal').classList.add('hidden'); $('#rv-burst').innerHTML = '';
 }
 
 /** Animate a number from 0 up to `to` (skipped when the user prefers reduced motion). */
@@ -2154,21 +2327,25 @@ function renderHero() {
     [20 - sc.wake, `Getting up ${sc.wakeDev}m late cost you ${20 - sc.wake} points.`],
     [20 - sc.intr, `${sc.awake}m awake in the night cost you ${20 - sc.intr} points.`]
   ].sort((a, b) => b[0] - a[0])[0];
+  // The part lines already say where points went, so the summary line only appears for red nights and near-perfect ones
   const nudge = sc.red ? `Red night: ${redReasons(last).join(', ')}.${sc.capped ? ` The parts add up to ${sc.raw}, but red nights are capped at ${RED_SCORE_CAP}.` : ''}`
-    : losses[0] <= 2 ? 'Nothing left on the table. Now do it again tonight.' : losses[1];
+    : losses[0] <= 2 ? 'Nothing left on the table. Now do it again tonight.' : '';
+  // The one line shown by default: the biggest loss, in plain words (details on tap)
+  const dS = m => { m = Math.abs(Math.round(m)); return m < 60 ? `${m}m` : fmtDur(m).replace(' 00m', ''); };
+  const biggest = [[40 - sc.dur, `${dS(okFor(last) - last.asleepMin)} short of ${dS(okFor(last))}`],
+    [20 - sc.bed, `in bed ${dS(sc.bedDev)} late`], [20 - sc.wake, `up ${dS(sc.wakeDev)} late`],
+    [20 - sc.intr, `${sc.awake}m awake in the night`]].sort((a, b) => b[0] - a[0])[0];
+  const headline = nudge || `<b class="text-warn">−${biggest[0]}</b> <span class="text-slate-200">${esc(biggest[1])}</span>`;
   // One short line per score part: how many points were lost, and exactly why
   const tol = s.toleranceMin, goalL = okFor(last);
   const dShort = m => { m = Math.abs(Math.round(m)); return m < 60 ? `${m}m` : fmtDur(m).replace(' 00m', ''); };
   const late = v => `${dShort(v)} ${v > 0 ? 'late' : 'early'}`;
   const why = {
     dur: sc.dur >= 40 ? `${fmtDur(last.asleepMin)} asleep, goal reached`
-      : `${fmtDur(last.asleepMin)} asleep, ${dShort(goalL - last.asleepMin)} under your ${dShort(goalL)} goal (0 points at ${dShort(goalL - 180)} or less)`,
-    bed: sc.bed >= 20 ? (sc.bedDev < -5 ? `in bed at ${fmtTime(last.bed)}, ${late(sc.bedDev)} (early never costs points)` : `in bed at ${fmtTime(last.bed)}, on time`)
-      : `in bed at ${fmtTime(last.bed)}, ${late(sc.bedDev)}; first ${tol}m late free, 0 points at ${dShort(tol + 90)}`,
-    wake: sc.wake >= 20 ? (sc.wakeDev < -5 ? `up at ${fmtTime(last.wake)}, ${late(sc.wakeDev)} (early never costs points)` : `up at ${fmtTime(last.wake)}, on time`)
-      : `up at ${fmtTime(last.wake)}, ${late(sc.wakeDev)}; first ${tol}m late free, 0 points at ${dShort(tol + 90)}`,
-    intr: sc.intr >= 20 ? `${sc.awake}m awake in the night, within the 15m allowed`
-      : `${sc.awake}m awake in the night; 15m is free, no points from 75m`
+      : `${fmtDur(last.asleepMin)} asleep, ${dShort(goalL - last.asleepMin)} under your ${dShort(goalL)} goal`,
+    bed: sc.bedDev < -5 ? `in bed at ${fmtTime(last.bed)}, ${late(sc.bedDev)}` : sc.bed >= 20 ? `in bed at ${fmtTime(last.bed)}, on time` : `in bed at ${fmtTime(last.bed)}, ${late(sc.bedDev)}`,
+    wake: sc.wakeDev < -5 ? `up at ${fmtTime(last.wake)}, ${late(sc.wakeDev)}` : sc.wake >= 20 ? `up at ${fmtTime(last.wake)}, on time` : `up at ${fmtTime(last.wake)}, ${late(sc.wakeDev)}`,
+    intr: `${sc.awake}m awake in the night`
   };
   const part = (name, v, max, note) => `<div><div class="flex justify-between text-xs mb-1"><span class="text-muted">${name}</span><span class="font-semibold">${v}<span class="text-muted font-normal">/${max}</span></span></div>
       <div class="h-1.5 rounded-full bg-white/5 overflow-hidden"><div class="h-full rounded-full" style="width:${(v / max) * 100}%;background:${v / max >= .75 ? '#10B981' : v / max >= .5 ? '#818CF8' : '#F59E0B'}"></div></div>
@@ -2188,7 +2365,7 @@ function renderHero() {
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
       <div><h2 class="text-base font-semibold">Sleep Score</h2><p class="text-xs text-muted mt-0.5">${fmtDateLong(last.date)}</p></div>
       <span class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold border" style="color:${tierHex};border-color:${tierHex}55;background:${tierHex}1A">
-        <i class="w-1.5 h-1.5 rounded-full" style="background:${tierHex}"></i>${tierName} tier · 7-day average ${r1(st.avg7)}</span>
+        <i class="w-1.5 h-1.5 rounded-full" style="background:${tierHex}"></i>${tierName} tier</span>
     </div>
     <div class="grid md:grid-cols-[auto_1fr] gap-6 md:gap-10 items-center">
       <div class="relative w-44 h-44 sm:w-48 sm:h-48 mx-auto">
@@ -2202,17 +2379,22 @@ function renderHero() {
           <p class="text-xs uppercase tracking-widest mt-2 ${sc.red ? 'text-red-300 font-semibold' : 'text-muted'}">${sc.label}</p></div></div>
       </div>
       <div class="min-w-0">
-        <div class="space-y-3">${part('Duration', sc.dur, 40, why.dur)}${part('Bedtime', sc.bed, 20, why.bed)}${part('Wake time', sc.wake, 20, why.wake)}${part('Interruptions', sc.intr, 20, why.intr)}</div>
-        <p class="text-sm text-slate-300 mt-4">${nudge}</p>
-        ${delta === null ? '' : delta === 0 ? `<p class="text-xs mt-1 text-muted">Exactly your 7-day average</p>`
-          : `<p class="text-xs mt-1 ${delta > 0 ? 'text-sage' : 'text-warn'}">${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)} vs your 7-day average</p>`}
+        <p class="text-lg sm:text-xl font-semibold leading-snug">${headline}</p>
+        <button id="sc-more" class="mt-3 text-xs font-medium text-accent hover:text-indigo-300 transition" aria-expanded="${!!ui.scoreOpen}">${ui.scoreOpen ? 'Hide details ▴' : 'Details ▾'}</button>
       </div>
+    </div>
+    <div id="sc-details" class="${ui.scoreOpen ? '' : 'hidden'} mt-5 space-y-3">
+      ${part('Duration', sc.dur, 40, why.dur)}${part('Bedtime', sc.bed, 20, why.bed)}${part('Wake time', sc.wake, 20, why.wake)}${part('Interruptions', sc.intr, 20, why.intr)}
+      ${delta === null ? '' : delta === 0 ? `<p class="text-xs text-muted">Exactly your 7-day average</p>`
+        : `<p class="text-xs ${delta > 0 ? 'text-sage' : 'text-warn'}">${delta > 0 ? '▲' : '▼'} ${Math.abs(delta)} vs your 7-day average (${avgR})</p>`}
     </div>
     <div class="flex items-center gap-3 mt-6 rounded-2xl bg-obsidian/60 border border-line px-4 py-3">
       <span class="shrink-0 min-w-[3.25rem] text-center rounded-lg px-2 py-1 text-sm font-bold" style="background:${pHex}22;color:${pHex}">${pNum}</span>
       <p class="text-sm text-slate-300 leading-snug">${pText}</p>
     </div>`;
   if (animate) { ui.scoreShown = last.date + ':' + sc.total; countUp($('#score-num'), sc.total); }
+  $('#sc-more').onclick = e => { ui.scoreOpen = !ui.scoreOpen; $('#sc-details').classList.toggle('hidden', !ui.scoreOpen);
+    e.currentTarget.textContent = ui.scoreOpen ? 'Hide details ▴' : 'Details ▾'; e.currentTarget.setAttribute('aria-expanded', ui.scoreOpen); };
 
   /* — Streak card — */
   const byDate = new Map(ns.map(n => [n.date, n]));
@@ -2227,20 +2409,32 @@ function renderHero() {
 
   const next = [3, 7, 14, 21, 30, 60, 100, 180, 365, 9999].find(x => x > m.streak);
   const chaseRecord = m.best > m.streak && m.best + 1 <= next, goalN = chaseRecord ? m.best + 1 : next, left = goalN - m.streak;
-  const mileText = `${left} more night${left === 1 ? '' : 's'} to ${chaseRecord ? `beat your record of ${m.best}` : `the ${goalN}-night mark`}`
-    + (m.streak > 0 && m.streak >= m.best ? ' · this is your longest streak ever' : '');
+  // Progress to the next mark as a ring around the streak number (fills up as the goal gets close)
+  const RC = 2 * Math.PI * 46, frac = clamp(m.streak / goalN, 0, 1);
+  const ring = `<div class="relative w-28 h-28 sm:w-32 sm:h-32 shrink-0" title="${left} more night${left === 1 ? '' : 's'} to ${chaseRecord ? `beat your record of ${m.best}` : `the ${goalN}-night mark`}">
+      <svg viewBox="0 0 100 100" class="w-full h-full -rotate-90">
+        <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(148,163,184,.12)" stroke-width="6"/>
+        <circle cx="50" cy="50" r="46" fill="none" stroke="${m.streak ? '#10B981' : '#F59E0B'}" stroke-width="6" stroke-linecap="round"
+          style="stroke-dasharray:${RC.toFixed(1)};stroke-dashoffset:${(RC * (1 - frac)).toFixed(1)};transition:stroke-dashoffset 1s cubic-bezier(.2,.8,.2,1);${frac > 0 ? 'filter:drop-shadow(0 0 6px rgba(16,185,129,.5))' : ''}"/></svg>
+      <div class="absolute inset-0 grid place-items-center text-center"><div>
+        <p class="text-4xl sm:text-5xl font-bold tracking-tight leading-none ${m.streak ? 'text-sage' : 'text-warn'}">${m.streak}</p>
+        <p class="text-[10px] uppercase tracking-wider text-muted mt-1">${chaseRecord ? `record ${m.best}` : `of ${goalN}`}</p></div></div>
+    </div>`;
+  // Identity: shown while 8 of the last 10 nights were on time
+  const idT = identityText(identityStats(ns, ns.length - 1)), idS = identityStats(ns, ns.length - 1);
+  const identity = idT ? `<div class="mt-4 inline-flex items-center gap-2 rounded-full border border-sage/30 bg-sage/10 px-3 py-1.5 text-xs">
+      <span class="text-sage">★</span><span class="text-slate-200 font-medium">${idT.charAt(0).toUpperCase() + idT.slice(1)}</span><span class="text-muted">· ${idS.k} of your last 10 nights</span></div>` : '';
+  const recordText = m.streak > 0 && m.streak >= m.best ? 'Your record' : `Record ${m.best} night${m.best === 1 ? '' : 's'}`;
 
   $('#streak-card').innerHTML = `
     <div class="flex items-center justify-between mb-3"><h2 class="text-sm font-semibold">Streak on the Line</h2>
-      <span class="text-xs text-muted">Record ${m.best} night${m.best === 1 ? '' : 's'}</span></div>
+      <span class="text-xs ${m.streak > 0 && m.streak >= m.best ? 'text-sage font-semibold' : 'text-muted'}">${recordText}</span></div>
     <div class="flex items-center gap-4 sm:gap-6">
-      <div class="text-center shrink-0"><p class="text-5xl sm:text-6xl font-bold tracking-tight leading-none ${m.streak ? 'text-sage' : 'text-warn'}">${m.streak}</p>
-        <p class="text-[11px] uppercase tracking-wider text-muted mt-1.5">night streak</p></div>
+      ${ring}
       <div class="min-w-0"><p id="sk-head" class="text-base sm:text-lg font-semibold leading-snug"></p><p id="sk-sub" class="text-sm text-muted mt-1"></p></div>
     </div>
     <div class="flex justify-between sm:justify-start sm:gap-3 mt-5">${chain}</div>
-    <div class="mt-4"><div class="h-1.5 rounded-full bg-white/5 overflow-hidden"><div class="h-full rounded-full bg-sage" style="width:${clamp(m.streak / goalN * 100, 0, 100)}%"></div></div>
-      <p class="text-xs text-muted mt-1.5">${mileText}</p></div>
+    ${identity}
     <div class="flex flex-wrap items-center gap-2 mt-4">
       <button id="sk-log" class="btn btn-primary !py-2 hidden">Log last night</button>
     </div>`;
@@ -2262,7 +2456,9 @@ function tickStreak() {
     s2 = n ? `Your ${n}-night streak is on hold. An unlogged night breaks the chain.` : 'A night you don’t log can’t count. Add it now.';
   } else if (now < tn.deadline) {
     h = n ? `Don’t lose ${nights} tonight` : 'Streak at zero. Tonight is night 1';
-    s2 = `Lights out by ${fmtClock(minOfDay(tn.deadline))} ${n ? 'keeps it alive' : 'starts a new one'} · ${cd(tn.deadline - now)} left`;
+    // One time to aim for (the target bedtime) and the last call that still earns a check
+    const aim = fmtClock(minOfDay(tn.bed)), last = fmtClock(minOfDay(tn.deadline));
+    s2 = `In bed by ${aim}${last !== aim ? `, ${last} at the latest,` : ''} ${n ? 'keeps it alive' : 'starts a new one'} · ${cd(tn.deadline - now)} left`;
     hot = now >= tn.dim;
   } else {
     const possible = Math.max(0, (tn.wake - now) / 60000 - S().latencyMin);
@@ -2307,7 +2503,7 @@ function tickNight() {
   const st = $('#ns-steps'); if (st.dataset.sig !== steps) { st.innerHTML = steps; st.dataset.sig = steps; }
   const m = ui.metrics, n = m ? m.streak : 0, sk = $('#ns-streak');
   if (phase === 2) { sk.textContent = n ? `Your ${n}-night streak ends tonight.` : 'Tomorrow is night 1 again.'; sk.className = 'text-sm mt-6 leading-relaxed text-red-300'; }
-  else if (now < tn.deadline) { sk.textContent = n ? `Lights out by ${fmtClock(minOfDay(tn.deadline))} keeps your ${n}-night streak alive.` : `Lights out by ${fmtClock(minOfDay(tn.deadline))} starts a new streak.`; sk.className = 'text-sm mt-6 leading-relaxed text-sage'; }
+  else if (now < tn.deadline) { sk.textContent = n ? `In bed by ${fmtClock(minOfDay(tn.deadline))} at the latest keeps your ${n}-night streak alive.` : `In bed by ${fmtClock(minOfDay(tn.deadline))} at the latest starts a new streak.`; sk.className = 'text-sm mt-6 leading-relaxed text-sage'; }
   else { sk.textContent = n ? `Too late to keep the ${n}-night streak. Don't let it turn red as well.` : 'Too late for a full night. Don’t let it turn red as well.'; sk.className = 'text-sm mt-6 leading-relaxed text-warn'; }
 }
 
@@ -2322,7 +2518,7 @@ function kpiCard(i, label, value, sub, tone, extra = '') {
 function renderKPIs() {
   const m = computeMetrics(), s = S(), thr = fmtDur(goalNow() - s.bufferMin);
   if (!m) {
-    $('#kpis').innerHTML = [['Consistency', `Within ${s.toleranceMin}m of target`],
+    $('#kpis').innerHTML = [['Consistency', 'Nights on time for a check'],
       ['7-day sleep debt', 'Against your weekly target'], ['Average sleep', '7-day and 30-day']]
       .map(([l, sub], i) => kpiCard(i, l, '—', sub, 'crisp')).join('');
     return;
@@ -2332,14 +2528,14 @@ function renderKPIs() {
   const cHex = { sage: '#10B981', accent: '#6366F1', warn: '#F59E0B' }[cTone];
   const bar = `<div class="h-1 rounded-full bg-white/5 overflow-hidden mt-3"><div class="h-full rounded-full" style="width:${m.consistency}%;background:${cHex}"></div></div>`;
   const debtTone = m.debt >= 0 ? 'sage' : 'warn';
-  const avgDelta = m.avg7 - s.goalMin;
+  const avgDelta = m.avg7 - okMin();
   $('#kpis').innerHTML = [
     kpiCard(1, 'Consistency', `${m.consistency}${unit('%')}`,
-      `${m.onCount} of ${m.cTotal} nights no more than ${s.toleranceMin}m late`, cTone, bar),
+      `${m.onCount} of ${m.cTotal} nights on time for a check`, cTone, bar),
     kpiCard(2, m.debt >= 0 ? '7-day surplus' : '7-day sleep debt', `${m.debt >= 0 ? '+' : '−'}${fmtDur(m.debt)}`,
-      `${fmtDur(m.w7Total)} of ${fmtDur(s.goalMin * m.w7Count).replace(' 00m', '')} target${m.w7Count < 7 ? ` · ${m.w7Count} of 7 nights logged` : ''}`, debtTone),
+      `${fmtDur(m.w7Total)} of ${fmtDur(m.w7Target).replace(' 00m', '')} needed for 7 checks${m.w7Count < 7 ? ` · ${m.w7Count} of 7 nights logged` : ''}`, debtTone),
     kpiCard(3, 'Average sleep', fmtDur(m.avg7),
-      `7-day · ${avgDelta >= 0 ? '+' : '−'}${fmtDur(avgDelta)} vs goal<br>30-day average ${fmtDur(m.avg30)}${m.n30 < 30 ? ` (${m.n30} nights)` : ''}`,
+      `7-day · ${avgDelta >= 0 ? '+' : '−'}${fmtDur(avgDelta)} vs ${thr}<br>30-day average ${fmtDur(m.avg30)}${m.n30 < 30 ? ` (${m.n30} nights)` : ''}`,
       m.avg7 >= s.goalMin - s.bufferMin ? 'sage' : 'crisp')
   ].join('');
 }
@@ -2357,17 +2553,17 @@ function renderInsights() {
   let html = '';
   if (best.lift > 0) html += `<div class="rounded-xl bg-sage/10 border border-sage/25 p-3 mb-2">
       <p class="text-[11px] uppercase tracking-wider text-sage font-semibold">Best for your sleep</p>
-      <p class="text-sm mt-1"><span class="font-semibold">${esc(best.tag)}</span> nights hit ${thr}+ <span class="font-semibold text-sage">${pct(best.rate)}</span> of the time, vs ${pct(best.base)} without.</p></div>`;
+      <p class="text-sm mt-1"><span class="font-semibold">${esc(best.tag)}</span> nights get a check <span class="font-semibold text-sage">${pct(best.rate)}</span> of the time, vs ${pct(best.base)} without.</p></div>`;
   if (worst.lift < 0 && worst !== best) html += `<div class="rounded-xl bg-warn/10 border border-warn/25 p-3 mb-2">
       <p class="text-[11px] uppercase tracking-wider text-warn font-semibold">Costing you sleep</p>
-      <p class="text-sm mt-1"><span class="font-semibold">${esc(worst.tag)}</span> nights hit the goal only <span class="font-semibold text-warn">${pct(worst.rate)}</span> of the time, averaging ${fmtDur(worst.avgDiff)} less.</p></div>`;
+      <p class="text-sm mt-1"><span class="font-semibold">${esc(worst.tag)}</span> nights get a check only <span class="font-semibold text-warn">${pct(worst.rate)}</span> of the time, averaging ${fmtDur(worst.avgDiff)} less sleep.</p></div>`;
   if (!html) html = `<p class="text-sm text-muted mb-2">No tag stands out yet. Keep tagging.</p>`;
   html += `<ul class="mt-4 space-y-3">` + stats.map(s => `<li>
       <div class="flex items-baseline justify-between text-xs mb-1">
         <span class="text-slate-200 font-medium">${esc(s.tag)} <span class="text-muted font-normal">· ${s.n} nights</span></span>
         <span class="${s.lift > 0 ? 'text-sage' : s.lift < 0 ? 'text-warn' : 'text-muted'} font-semibold">${pct(s.rate)}</span></div>
       <div class="h-1.5 rounded-full bg-white/5 overflow-hidden"><div class="h-full rounded-full" style="width:${s.rate * 100}%;background:${s.lift > 0 ? '#10B981' : s.lift < 0 ? '#F59E0B' : '#6366F1'}"></div></div></li>`).join('') + `</ul>
-    <p class="text-[11px] text-muted/80 mt-4">Share of tagged nights reaching ${thr}. Correlation from a small sample, not proof of cause.</p>`;
+    <p class="text-[11px] text-muted/80 mt-4">Share of nights with a check. Small sample, not proof.</p>`;
   el.innerHTML = html;
 }
 
@@ -2503,10 +2699,10 @@ function periodStats(ns, t) {
   return {
     n,
     avgSleep: mean(ns.map(x => x.asleepMin)),
-    okPct: 100 * ns.filter(x => x.asleepMin >= okFor(x)).length / n,
+    okPct: 100 * ns.filter(goalHit).length / n,
     red: ns.filter(isRed).length,
     redPct: 100 * ns.filter(isRed).length / n,
-    cons: mean(ns.map(nightScore)),
+    cons: 100 * ns.filter(lateOk).length / n,
     score: mean(ns.map(x => sleepScore(x).total)),
     bedDev, wakeDev, bedClock: fmtClock(t.finalBed + bedDev), wakeClock: fmtClock(t.wake + wakeDev)
   };
@@ -2527,7 +2723,7 @@ function renderProgress() {
   const ds = m => (Math.abs(m) < 60 ? `${Math.abs(Math.round(m))}m` : fmtDur(m).replace(' 00m', ''));
   const metrics = [
     ['Average sleep', cur.avgSleep, prev?.avgSleep, v => fmtDur(v), d => ds(d), true, 10],
-    [`Nights ≥ ${fmtDur(okMin()).replace(' 00m', '')}`, cur.okPct, prev?.okPct, v => `${Math.round(v)}%`, d => `${Math.abs(Math.round(d))} pts`, true, 5],
+    ['Nights with a check', cur.okPct, prev?.okPct, v => `${Math.round(v)}%`, d => `${Math.abs(Math.round(d))} pts`, true, 5],
     ['Red nights', cur.redPct, prev?.redPct, v => `${cur === null ? 0 : Math.round(v * range / 100)}`, d => `${Math.abs(Math.round(d))} pts`, false, 5],
     ['Sleep score', cur.score, prev?.score, v => `${Math.round(v)}`, d => `${Math.abs(Math.round(d))}`, true, 2],
     ['Consistency', cur.cons, prev?.cons, v => `${Math.round(v)}%`, d => `${Math.abs(Math.round(d))} pts`, true, 3],
@@ -2564,7 +2760,7 @@ function renderProgress() {
     return `<div class="rounded-2xl bg-obsidian/60 border border-line px-4 py-3">
       <p class="text-[11px] uppercase tracking-wider text-muted font-medium">${label}</p>
       <p class="text-2xl font-bold mt-1 ${tone}">${showVal(m, 'cur')}</p>
-      <p class="text-[11px] text-muted mt-0.5">${enough && before != null ? `was ${showVal(m, 'prev')} · ` : ''}${chip || (enough ? '' : 'not enough earlier data')}</p></div>`;
+      ${enough && before != null ? `<p class="text-[11px] text-muted mt-0.5">was ${showVal(m, 'prev')}${chip ? ` · ${chip}` : ''}</p>` : ''}</div>`;
   }).join('');
   $('#pg-grid').innerHTML = tiles;
 
@@ -2607,7 +2803,7 @@ function tickWindDown() {
   let phase, label, count, hint, color, frac;
   if (now < dim) {
     phase = 0; label = 'Dim the lights in'; count = cd(dim - now); color = '#6366F1';
-    hint = `Screens away at ${fmtClock(minOfDay(dim))}, in bed by ${fmtClock(t.bed)}.`;
+    hint = '';                                    // the times are in the list below
     frac = (now - (wake - DAY)) / (dim - (wake - DAY));
   } else if (now < bed) {
     phase = 1; label = 'Wind-down · be in bed in'; count = cd(bed - now); color = '#F59E0B';
@@ -2776,7 +2972,8 @@ function init() {
   // Close modals: ✕ / Cancel, backdrop click, Escape
   $$('.modal-close').forEach(b => b.onclick = closeModals);
   $$('.modal').forEach(m => m.addEventListener('mousedown', e => { if (e.target === m) closeModals(); }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModals(); closeReveal(); } });
+  $('#rv-close').onclick = closeReveal;
 
   // Night modal
   ['nm-date', 'nm-bed', 'nm-wake'].forEach(id => $('#' + id).addEventListener('input', syncNightForm));
