@@ -513,9 +513,9 @@
     <h3 id="pl-title" class="text-xl font-bold mt-1">Kdo si?</h3>
     <p class="text-sm text-muted mt-1">7 noči, vsako noč kljukica. Izberi svojo črko.</p>
     <div class="grid grid-cols-3 gap-3 mt-5">
-      <button data-player="N" class="chip-toggle chip !justify-center !text-2xl !font-bold !py-4 !rounded-2xl">N</button>
-      <button data-player="T" class="chip-toggle chip !justify-center !text-2xl !font-bold !py-4 !rounded-2xl">T</button>
-      <button data-player="P" class="chip-toggle chip !justify-center !text-2xl !font-bold !py-4 !rounded-2xl">P</button>
+      <button data-player="N" class="chip-toggle chip !flex-col !justify-center !text-2xl !font-bold !py-3 !rounded-2xl">N<span class="block text-[11px] font-medium text-muted mt-0.5">vstajanje 7:30</span></button>
+      <button data-player="T" class="chip-toggle chip !flex-col !justify-center !text-2xl !font-bold !py-3 !rounded-2xl">T<span class="block text-[11px] font-medium text-muted mt-0.5">vstajanje 7:30</span></button>
+      <button data-player="P" class="chip-toggle chip !flex-col !justify-center !text-2xl !font-bold !py-3 !rounded-2xl">P<span class="block text-[11px] font-medium text-muted mt-0.5">vstajanje 7:00</span></button>
     </div>
   </div>
 </div>
@@ -838,7 +838,8 @@ function tonight() {
 
 /* ───────────── Izziv N · T · P ─────────────
    7 noči, od noči 24.→25. novembra 2026. Ključ noči je jutro, ko se zbudiš. Pravila za kljukico so ista kot povsod. */
-const CH = { start: '2026-11-25', days: 7, players: ['N', 'T', 'P'], name: 'Izziv N · T · P' };
+const CH = { start: '2026-11-25', days: 7, players: ['N', 'T', 'P'], name: 'Izziv N · T · P',
+             wake: { N: '07:30', T: '07:30', P: '07:00' } };          // ura vstajanja vsakega igralca (nastavi se ob izbiri črke)
 function challenge() {
   const tn = tonight(), by = new Map(state.isSample ? [] : state.nights.map(n => [n.date, n]));
   const nights = [...Array(CH.days)].map((_, i) => {
@@ -909,7 +910,9 @@ function renderChallenge() {
 function openPlayerPick() {
   const m = $('#modal-player'); if (!m) return;
   m.querySelectorAll('[data-player]').forEach(b => { b.classList.toggle('on', b.dataset.player === S().player);
-    b.onclick = () => { S().player = b.dataset.player; save(); closeModals(); renderAll(); toast(`Igralec ${b.dataset.player}. Srečno!`); }; });
+    b.onclick = () => { const p = b.dataset.player, w = CH.wake[p];
+      S().player = p; if (w && S().wakeTime !== w) { S().wakeTime = w; if (S().ladder) S().ladder.offset = null; }
+      save(); closeModals(); renderAll(); toast(`Igralec ${p} · vstajanje ob ${fmtClock(hmToMin(S().wakeTime))}. Srečno!`); }; });
   openModal('modal-player');
 }
 
