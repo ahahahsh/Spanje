@@ -502,12 +502,13 @@ const STORE_KEY = 'nocturne.sleep.v1';
 const DEFAULTS = {
   wakeTime: '07:15',   // target wake time
   goalMin: 480,        // sleep goal (8h)
-  latencyMin: 20,      // time to fall asleep → time in bed = goal + latency
+  latencyMin: 15,      // time to fall asleep → time in bed = goal + latency
   bufferMin: 15,       // streak counts nights ≥ goal − buffer (7h 45m)
   toleranceMin: 30,    // ± window that counts as "on schedule"
   windDownMin: 60,     // dim lights this long before bedtime
   tags: ['Late Caffeine', 'Workout', 'Screens Late', 'Magnesium', 'Alcohol'],
-  ladderDefaultOff: true   // marks setups created after the bedtime ladder became opt-in
+  ladderDefaultOff: true,  // marks setups created after the bedtime ladder became opt-in
+  latency15: true          // marks setups created after the default time to fall asleep became 15 min
 };
 let state = { nights: [], settings: { ...DEFAULTS, tags: [...DEFAULTS.tags] }, isSample: false, pledges: {} };
 const ui = { range: 14, editing: null, modalTags: new Set(), asleepTouched: false };
@@ -575,6 +576,8 @@ function load() {
       if (!Array.isArray(state.settings.tags)) state.settings.tags = [...DEFAULTS.tags];
       // The bedtime ladder is now off by default; switch it off once for setups where it was switched on automatically
       if (!(s.settings || {}).ladderDefaultOff) { if (state.settings.ladder) state.settings.ladder.on = false; state.settings.ladderDefaultOff = true; }
+      // The default time to fall asleep went from 20 to 15 min; move saved setups that still had the old default, once
+      if (!(s.settings || {}).latency15) { if (state.settings.latencyMin === 20) state.settings.latencyMin = 15; state.settings.latency15 = true; }
       // One-time upgrade from the version before the ladder: the old default wake time was 07:00
       if (!(s.settings || {}).ladder && state.settings.wakeTime === '07:00') state.settings.wakeTime = DEFAULTS.wakeTime;
       if (state.isSample) state.nights = sampleNights();          // keep the demo nights ending "last night"
