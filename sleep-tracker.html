@@ -260,8 +260,8 @@
         <div class="seg range-seg"><button data-range="14">14</button><button data-range="30">30</button><button data-range="90">90</button></div>
       </div>
       <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted my-3">
-        <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-sage inline-block"></i>On schedule (<span class="tol-label">±30m</span>)</span>
-        <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-warn inline-block"></i>Off schedule</span>
+        <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-sage inline-block"></i>Check</span>
+        <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-warn inline-block"></i>No check</span>
         <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#EF4444"></i>Red night</span>
         <span class="flex items-center gap-1.5"><i class="w-4 border-t-2 border-dashed border-accent inline-block"></i>Targets</span>
       </div>
@@ -294,8 +294,8 @@
         <div class="seg range-seg"><button data-range="14">14</button><button data-range="30">30</button><button data-range="90">90</button></div>
       </div>
       <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted my-3">
-        <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-sage inline-block"></i>≥ <span class="goal-label">8h</span></span>
-        <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-warn inline-block"></i>Below goal</span>
+        <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-sage inline-block"></i>Check</span>
+        <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm bg-warn inline-block"></i>No check</span>
         <span class="flex items-center gap-1.5"><i class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#EF4444"></i>Red night</span>
       </div>
       <div class="relative h-64 sm:h-72"><canvas id="chart-duration"></canvas></div>
@@ -628,7 +628,24 @@ function sampleNights() {
 const sortedNights = () => [...state.nights].sort((a, b) => (a.date < b.date ? -1 : 1));
 /** Counts toward the streak: asleep ≥ goal − buffer. */
 /** Counts toward the streak: enough sleep, and not a red night (a 9-hour lie-in until 10:00 still breaks it). */
-const goalHit = n => n.asleepMin >= goalFor(n) - S().bufferMin && !isRed(n);
+/* A night earns a check (and counts toward the streak) when all of these hold:
+   enough sleep (goal − buffer, 7h 45m), not more than STREAK_LATE minutes late to bed or out of bed
+   (early is always fine), and not a red night. */
+const STREAK_LATE = 60;
+const lateOk = n => { const d = deviations(n); return d.bed <= STREAK_LATE && d.wake <= STREAK_LATE; };
+const goalHit = n => n.asleepMin >= goalFor(n) - S().bufferMin && lateOk(n) && !isRed(n);
+/** One verdict per night, used for every colour in the app: green = check, amber = no check, red = red night. */
+const verdict = n => isRed(n) ? 'red' : goalHit(n) ? 'check' : 'miss';
+/** Short reason a night didn't get a check (for tooltips). */
+function noCheckWhy(n) {
+  if (isRed(n)) return `red night: ${redReasons(n).join(', ')}`;
+  const r = [], d = deviations(n), short = okFor(n) - n.asleepMin;
+  if (short > 0) r.push(`${short < 60 ? `${short}m` : fmtDur(short)} short of ${fmtDur(okFor(n)).replace(' 00m', '')}`);
+  if (d.bed > STREAK_LATE) r.push(`${d.bed}m late to bed`);
+  if (d.wake > STREAK_LATE) r.push(`${d.wake}m late getting up`);
+  return r.join(', ');
+}
+const checkLine = n => goalHit(n) ? '✓ Check' : `✕ No check: ${noCheckWhy(n)}`;
 /** Signed minutes late (+) or early (−) for bedtime and wake time. */
 const deviations = n => { const t = targets(); return { bed: circDiff(minOfDay(n.bed), mod1440(t.finalBed + offsetAt(n.date))), wake: circDiff(minOfDay(n.wake), t.wake) }; };
 /** On schedule = not more than the ± window late for bed or wake-up. Being early is never penalised. */
@@ -636,8 +653,9 @@ const onSchedule = n => { const d = deviations(n), tol = S().toleranceMin; retur
 
 /* Red ("catastrophic") nights: a night that harms the rhythm for days, not just a missed target.
    Limits follow the schedule, so they stay meaningful if the goal or wake time changes:
-   asleep under goal − 2 h, in bed 2 h or more after the final target bedtime, or up 1 h 45 m or more after the wake target. */
-const RED = { shortMin: 120, bedLateMin: 120, wakeLateMin: 105 };
+   asleep under goal − 2 h, or 2 h or more late, either to bed (after the final target bedtime) or out of bed.
+   Lateness steps through the app: 30 min free · over 60 min no check · 2 h red. */
+const RED = { shortMin: 120, bedLateMin: 120, wakeLateMin: 120 };
 const redLimits = () => { const t = targets();
   return { asleep: S().goalMin - RED.shortMin, bed: mod1440(t.finalBed + RED.bedLateMin), wake: mod1440(t.wake + RED.wakeLateMin) }; };
 /** Reasons this night is red (empty array = not red). */
@@ -729,7 +747,7 @@ function tonight() {
   const mid = new Date(); mid.setHours(0, 0, 0, 0);
   let wake = mid.getTime() + t.wake * 60000; if (wake <= now) wake += DAY;
   const bed = wake - t.inBed * 60000;
-  return { now, wake, bed, dim: bed - s.windDownMin * 60000, deadline: wake - (goalNow() - s.bufferMin + s.latencyMin) * 60000,
+  return { now, wake, bed, dim: bed - s.windDownMin * 60000, deadline: Math.min(wake - (goalNow() - s.bufferMin + s.latencyMin) * 60000, bed + STREAK_LATE * 60000),
            key: dateKey(new Date(wake)), prevKey: dateKey(new Date(wake - DAY)), prevWake: wake - DAY };
 }
 
@@ -777,7 +795,7 @@ function coachCtx() {
 
   const m = ui.metrics || computeMetrics();
   const info = n => { const d = deviations(n), sc = sleepScore(n);
-    return { date: n.date, asleep: n.asleepMin, short: goalFor(n) - n.asleepMin, hit: goalHit(n), full: n.asleepMin >= goalFor(n), sched: onSchedule(n),
+    return { date: n.date, asleep: n.asleepMin, short: goalFor(n) - n.asleepMin, hit: n.asleepMin >= okFor(n), ok: goalHit(n),   // hit = enough sleep · ok = earned a check (streak) full: n.asleepMin >= goalFor(n), sched: onSchedule(n),
       bedDev: d.bed, wakeDev: d.wake, awake: sc.awake, score: sc.total, tags: n.tags || [], bedClock: fmtTime(n.bed), wakeClock: fmtTime(n.wake),
       inBed: Math.round((n.wake - n.bed) / 60000), eff: Math.round(n.asleepMin / Math.max(1, (n.wake - n.bed) / 60000) * 100),
       afterMid: t.bed > 720 && minOfDay(n.bed) < 300, parts: sc, red: redReasons(n),
@@ -786,13 +804,14 @@ function coachCtx() {
   c.gap = dayDiff(tn.prevKey, L.date); c.unlogged = c.gap > 0 && now > tn.prevWake + 2 * 3600000;
   c.streak = m.streak; c.best = m.best; c.debt = m.debt; c.avg7 = m.avg7; c.avg30 = m.avg30; c.n30 = m.n30; c.cons = m.consistency;
 
-  let i = all.length - 1; c.missRun = 0; while (i >= 0 && !all[i].hit) { c.missRun++; i--; }          // misses in a row, ending last night
-  c.lost = 0; if (!L.hit) { i = all.length - 2; while (i >= 0 && all[i].hit) { c.lost++; i--; } }       // length of the streak that just ended
-  c.missBefore = 0; if (L.hit) { i = all.length - 2; while (i >= 0 && !all[i].hit) { c.missBefore++; i--; } }
-  c.comeback = L.hit && c.streak === 1 && c.missBefore >= 2;
+  let i = all.length - 1; c.missRun = 0; while (i >= 0 && !all[i].ok) { c.missRun++; i--; }          // misses in a row, ending last night
+  c.lost = 0; if (!L.ok) { i = all.length - 2; while (i >= 0 && all[i].ok) { c.lost++; i--; } }       // length of the streak that just ended
+  c.missBefore = 0; if (L.ok) { i = all.length - 2; while (i >= 0 && !all[i].ok) { c.missBefore++; i--; } }
+  c.comeback = L.ok && c.streak === 1 && c.missBefore >= 2;
+  c.lateMiss = L.hit && !L.ok && !L.red.length;                                                     // enough sleep, but too late for a check
 
   const w7 = all.filter(x => dayDiff(L.date, x.date) < 7);
-  c.w7 = w7.length; c.hits7 = w7.filter(x => x.hit).length; c.red7 = w7.filter(x => x.red.length).length;
+  c.w7 = w7.length; c.hits7 = w7.filter(x => x.ok).length; c.red7 = w7.filter(x => x.red.length).length;
   c.redList = L.red.join(', ');
   let ri = all.length - 1; c.sinceRed = 0; while (ri >= 0 && !all[ri].red.length) { c.sinceRed++; ri--; }   // clean nights since the last red one
   c.everRed = ri >= 0;
@@ -819,7 +838,7 @@ function coachCtx() {
   c.hasWorst = !!tw && L.tags.includes(tw.tag); c.hasBest = !!tb && L.tags.includes(tb.tag);
 
   const MILES = [3, 7, 14, 21, 30, 60, 100, 180, 365];
-  c.mile = L.hit && MILES.includes(c.streak) ? c.streak : 0; c.next = MILES.find(x => x > c.streak) || c.streak + 1; c.left = c.next - c.streak;
+  c.mile = L.ok && MILES.includes(c.streak) ? c.streak : 0; c.next = MILES.find(x => x > c.streak) || c.streak + 1; c.left = c.next - c.streak;
   c.record = c.streak >= 2 && c.streak >= c.best && all.length > c.streak; c.toRecord = c.best - c.streak;
   const ss = scoreStats();                                                // score streak, tier and tonight's requirements
   c.sc = { run: ss.run, lostRun: ss.lostRun, bestRun: ss.bestRun, avg: Math.round(ss.avg7 * 10) / 10, tier: ss.tier[1], tierMin: ss.tier[0],
@@ -832,7 +851,7 @@ function coachCtx() {
   const eveDow = new Date(tn.wake - DAY).getDay();                        // the evening that belongs to tonight's sleep
   c.hour = new Date(now).getHours(); c.dowName = DAYS[eveDow]; c.monMorning = c.phase === 'morning' && new Date(now).getDay() === 1;
   const P = c.P; c.dAsleep = P ? L.asleep - P.asleep : 0;
-  const l4 = all.slice(-4); c.yoyo = l4.length === 4 && l4[0].hit !== l4[1].hit && l4[1].hit !== l4[2].hit && l4[2].hit !== l4[3].hit;
+  const l4 = all.slice(-4); c.yoyo = l4.length === 4 && l4[0].ok !== l4[1].ok && l4[1].ok !== l4[2].ok && l4[2].ok !== l4[3].ok;
   const byBed = [...w7].sort((a, b) => a.bedDev - b.bedDev), byWake = [...w7].sort((a, b) => a.wakeDev - b.wakeDev), enough = w7.length >= 4;
   c.bedSpread = enough ? byBed[byBed.length - 1].bedDev - byBed[0].bedDev : 0; c.bedEarliest = byBed[0].bedClock; c.bedLatest = byBed[byBed.length - 1].bedClock;
   c.wakeSpread = enough ? byWake[byWake.length - 1].wakeDev - byWake[0].wakeDev : 0; c.wakeEarliest = byWake[0].wakeClock; c.wakeLatest = byWake[byWake.length - 1].wakeClock;
@@ -843,8 +862,8 @@ function coachCtx() {
   c.scoreDown3 = three && l3[0].score > l3[1].score && l3[1].score > l3[2].score && l3[0].score - l3[2].score >= 15;
   c.scoreUp3 = three && l3[0].score < l3[1].score && l3[1].score < l3[2].score && l3[2].score - l3[0].score >= 15;
   c.debtDelta = P ? c.debt - all.filter(x => { const d = dayDiff(P.date, x.date); return d >= 0 && d < 7; }).reduce((a, x) => a + x.asleep - s.goalMin, 0) : 0;
-  c.hitRateAll = Math.round(all.filter(x => x.hit).length / all.length * 100);
-  const m30 = all.filter(x => dayDiff(L.date, x.date) < 30); c.hits30 = m30.filter(x => x.hit).length;
+  c.hitRateAll = Math.round(all.filter(x => x.ok).length / all.length * 100);
+  const m30 = all.filter(x => dayDiff(L.date, x.date) < 30); c.hits30 = m30.filter(x => x.ok).length;
   c.worstDow = null; c.tonightWorst = false;
   if (all.length >= 21) {                                                 // which evening of the week sleeps worst
     const g = {}; all.forEach(x => { const k = (keyToDate(x.date).getDay() + 6) % 7; (g[k] = g[k] || []).push(x.asleep); });
@@ -1006,7 +1025,7 @@ R(65, 'good', c => !c.night && c.bestScore && c.L.score >= 80,
   c => `${c.L.score}: your best sleep score on record. Look at what yesterday evening looked like and copy it tonight.`);
 R(64.5, 'warn', c => !c.night && c.worstScore,
   c => `${c.L.score} is the lowest score you've logged. One bad night is noise. Two is a trend. Make sure tonight isn't the second.`);
-R(64, 'good', c => !c.night && c.record && c.L.hit,
+R(64, 'good', c => !c.night && c.record && c.L.ok,
   c => `${pl(c.streak, 'night')}: a personal record. Every night from here is new ground, and every night has more to lose.`,
   c => `You've never had a streak this long. ${c.streak} and counting. Guard tonight like it matters, because now it does.`);
 R(63.8, 'warn', c => !c.night && c.missRun === 3,
@@ -1020,9 +1039,9 @@ R(62.5, 'warn', c => !c.night && c.L.bedDev > 120,
   c => `In bed at ${c.L.bedClock}, ${D(c.L.bedDev)} after your target. No morning routine can rescue a night that starts that late.`);
 R(62.2, 'warn', c => !c.night && c.debt <= -300,
   c => `You're ${D(c.debt)} behind over the last 7 days. That's more than half a night missing. You'll feel it in focus and mood before you feel it as tiredness.`);
-R(62, 'good', c => !c.night && c.L.hit && c.toRecord === 1,
+R(62, 'good', c => !c.night && c.L.ok && c.toRecord === 1,
   c => `One more night ties your record of ${c.best}. Two more beats it.`);
-R(61.5, 'good', c => !c.night && c.L.hit && c.left === 1 && c.streak > 0,
+R(61.5, 'good', c => !c.night && c.L.ok && c.left === 1 && c.streak > 0,
   c => `${pl(c.streak, 'night')}. Tonight makes it ${c.next}. Don't be the person who stopped one short.`);
 R(61, 'warn', c => !c.night && c.L.asleep < 360,
   c => `${D(c.L.asleep)} is not enough to run on. Skip the afternoon nap and the late coffee, or you'll pay for last night twice.`);
@@ -1116,7 +1135,7 @@ R(46, 'good', c => !c.night && c.avg7 >= c.goal,
   c => `Your 7-day average is ${D(c.avg7)}. A full week at or above 8 hours. This is what being rested is built from.`);
 R(45.5, 'info', c => !c.night && c.debt < -60,
   c => `You're ${D(c.debt)} under target for the week. Small, and still easy to erase. Two on-time nights do it.`);
-R(45, 'good', c => !c.night && c.L.hit && c.L.sched && c.streak >= 2,
+R(45, 'good', c => !c.night && c.L.ok && c.L.sched && c.streak >= 2,
   c => `On time to bed, on time up, full night. ${pl(c.streak, 'night')} in a row. Nothing to fix; just repeat.`,
   c => `A textbook night: ${c.L.bedClock} to ${c.L.wakeClock}. That's ${c.streak} now. Same again tonight.`);
 R(44.5, 'good', c => !c.night && c.avg7 > c.avg30 + 20 && c.n30 >= 14,
@@ -1155,6 +1174,12 @@ R(69.8, 'good', c => !c.night && c.lad.active && c.lad.moved === c.L.date,
   c => `Step complete. Your new bedtime is ${c.bed}, 20 minutes earlier than before.\nYou hit the last step on ${c.lad.need} nights, so it's yours. The new one will feel slightly early for two or three evenings; that's the point. Final goal is ${c.lad.finalBed}, ${c.lad.off} minutes away.`);
 R(53.8, 'warn', c => !c.night && c.lad.active && c.lad.count >= 5 && c.lad.onTime <= 1,
   c => `You've been on the ${c.bed} step for ${c.lad.count} nights and hit it ${c.lad.onTime === 1 ? 'once' : 'zero times'}.\nThe step is only ${c.lad.step} minutes earlier than what you were already doing, so this isn't about ability. Something specific is happening at ${c.bed} each evening. Find out what it is and move that one thing earlier.`);
+/* — Enough sleep, but too late for a check (the 60-minute rule) — */
+R(69.6, 'warn', c => !c.night && c.lateMiss && c.lost >= 1,
+  c => `${D(c.L.asleep)} of sleep, but your ${c.lost}-night streak still ended.\nThe streak asks for two things: enough sleep, and being no more than ${STREAK_LATE} minutes late to bed and out of bed. Last night you were ${c.L.bedDev > STREAK_LATE ? `${c.L.bedDev}m late to bed` : ''}${c.L.bedDev > STREAK_LATE && c.L.wakeDev > STREAK_LATE ? ' and ' : ''}${c.L.wakeDev > STREAK_LATE ? `${c.L.wakeDev}m late getting up` : ''}. Hours alone don't build a rhythm; the timing does.`);
+R(54.9, 'warn', c => !c.night && c.lateMiss,
+  c => `Enough sleep (${D(c.L.asleep)}), but no check: you were ${c.L.bedDev > STREAK_LATE ? `${c.L.bedDev}m late to bed` : `${c.L.wakeDev}m late getting up`}. Within ${STREAK_LATE} minutes of ${c.L.bedDev > STREAK_LATE ? c.bed : c.wake} and the night would have counted.`);
+
 /* — Red nights — */
 R(99.8, 'warn', c => c.night && c.toRed <= 0 && c.hour < 6,
   c => `Tonight is already a red night: you're still up after ${c.redBed}.\nIt can't be undone, but it can still get worse in one specific way. If you sleep in past ${c.redWake} tomorrow, you'll push your whole rhythm later and tomorrow night will start badly too. So: lights out now, alarm stays at ${c.wake}, and accept one short, tired day. That's the cheapest way out of a red night.`,
@@ -1330,13 +1355,13 @@ R(48.8, 'good', c => !c.night && c.sameBed3,
   c => `Three nights in a row you went to bed within a quarter of an hour of the same time. That steadiness is worth more than any single long night.`);
 R(47.8, 'good', c => !c.night && c.debtDelta >= 30 && c.debt < 0,
   c => `You paid back ${D(c.debtDelta)} of sleep debt last night. ${D(c.debt)} still owed for the week. Same again tonight and it's nearly gone.`);
-R(46.8, 'info', c => !c.night && c.L.hit && c.toRecord >= 2 && c.toRecord <= 3,
+R(46.8, 'info', c => !c.night && c.L.ok && c.toRecord >= 2 && c.toRecord <= 3,
   c => `${pl(c.streak, 'night')}. Your record is ${c.best}. You're ${c.toRecord} nights from matching it, close enough to start caring.`);
 R(44.8, 'good', c => !c.night && A(c.L.short) <= 5,
   c => `${D(c.L.asleep)}. Almost exactly 8 hours. That's the target, hit in the middle.`);
 R(43.8, 'info', c => !c.night && c.L.hit && c.L.wakeDev < -60,
   c => `You were up at ${c.L.wakeClock}, ${D(c.L.wakeDev)} before your alarm, and still got a full night. Fine as a one-off. If it keeps happening, your natural schedule may be earlier than the one you've set.`);
-R(41.2, 'good', c => !c.night && c.L.hit && c.streak >= 10 && !c.mile,
+R(41.2, 'good', c => !c.night && c.L.ok && c.streak >= 10 && !c.mile,
   c => `${c.streak} nights in a row. At this length a streak protects itself a little: one late evening now costs you ${c.streak} days of work, and you know it.`);
 R(39.8, 'good', c => !c.night && c.L.hit && c.L.awake <= 10,
   c => `Only ${c.L.awake} minutes awake all night. You slept straight through. That's as good as continuity gets.`);
@@ -1348,7 +1373,7 @@ R(38.2, 'good', c => !c.night && c.L.deepPct >= 15 && c.L.remPct >= 20,
   c => `${c.L.deepPct}% deep and ${c.L.remPct}% REM. Both halves of the night did their job: the first rebuilt the body, the second sorted the head.`);
 R(37.8, 'info', c => c.phase === 'day' && c.tagWorst,
   c => `A reminder from your own log: ${c.tagWorst.name} nights hit the goal ${c.tagWorst.rate}% of the time, the rest ${c.tagWorst.base}%. Worth remembering before this evening, not after.`);
-R(37.5, 'info', c => !c.night && c.L.hit && c.streak === 2,
+R(37.5, 'info', c => !c.night && c.L.ok && c.streak === 2,
   c => `Two in a row. Tonight makes three, and three is where it starts to count as a streak.`);
 R(37, 'info', c => c.phase === 'day' && c.worstDow,
   c => `Your weakest night of the week is ${c.worstDow.name}, at ${D(c.worstDow.avg)} on average.\nMost people have one. It's worth working out what makes yours different, because fixing a single recurring night lifts the whole week's average more than polishing the good ones.`);
@@ -2352,12 +2377,12 @@ function renderLog() {
   const ns = sortedNights().reverse();
   $('#log-count').textContent = ns.length ? `${ns.length} night${ns.length === 1 ? '' : 's'}` : '';
   $('#log').innerHTML = ns.map(n => {
-    const ok = n.asleepMin >= okFor(n), sched = onSchedule(n), red = isRed(n);
+    const v = verdict(n), ok = v === 'check', red = v === 'red';
     const tags = (n.tags || []).map(t => `<span class="chip">${esc(t)}</span>`).join('') || `<span class="text-xs text-muted/60">+ add tags</span>`;
     return `<button data-date="${n.date}" class="night-row w-full text-left grid grid-cols-[1fr_auto] sm:grid-cols-[130px_200px_130px_1fr] gap-x-4 gap-y-1.5 items-center px-2 sm:px-3 py-3 rounded-xl hover:bg-white/[0.035] transition border-t border-line/60 first:border-t-0">
       <span class="text-sm font-medium">${fmtDateLong(n.date)}</span>
       <span class="text-sm font-semibold sm:order-3 text-right sm:text-left ${red ? 'text-red-400' : ok ? 'text-sage' : 'text-warn'}">${fmtDur(n.asleepMin)}<span title="Sleep score" class="ml-2 inline-block min-w-[2rem] text-center rounded-md bg-white/5 px-1.5 py-0.5 text-[11px] ${scoreTone(sleepScore(n).total, red).cls}">${sleepScore(n).total}</span></span>
-      <span class="text-xs sm:text-sm text-muted sm:order-2 flex items-center gap-2"><i class="w-1.5 h-1.5 rounded-full shrink-0 ${red ? 'bg-red-500' : sched ? 'bg-sage' : 'bg-warn'}" title="${red ? 'Red night' : sched ? 'On schedule' : 'Off schedule'}"></i>${fmtTime(n.bed)} → ${fmtTime(n.wake)}${red ? '<span class="ml-1 rounded-md bg-red-500/15 text-red-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Red</span>' : ''}</span>
+      <span class="text-xs sm:text-sm text-muted sm:order-2 flex items-center gap-2"><i class="w-1.5 h-1.5 rounded-full shrink-0 ${red ? 'bg-red-500' : ok ? 'bg-sage' : 'bg-warn'}" title="${esc(checkLine(n))}"></i>${fmtTime(n.bed)} → ${fmtTime(n.wake)}${red ? '<span class="ml-1 rounded-md bg-red-500/15 text-red-300 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">Red</span>' : ''}</span>
       <span class="sm:order-4 col-span-2 sm:col-span-1 flex flex-wrap items-center gap-1.5">${tags}</span>
     </button>`;
   }).join('');
@@ -2432,12 +2457,12 @@ function renderCharts() {
     title: items => fmtDateLong(dates[items[0].dataIndex]),
     label: item => { const n = ns[item.dataIndex], d = deviations(n);
       const dev = v => Math.abs(v) < 1 ? 'on target' : `${Math.abs(v)}m ${v > 0 ? 'late' : 'early'}`;
-      return [`Bed ${fmtTime(n.bed)} (${dev(d.bed)})`, `Wake ${fmtTime(n.wake)} (${dev(d.wake)})`, `Asleep ${fmtDur(n.asleepMin)} · score ${sleepScore(n).total}`]; }
+      return [`Bed ${fmtTime(n.bed)} (${dev(d.bed)})`, `Wake ${fmtTime(n.wake)} (${dev(d.wake)})`, `Asleep ${fmtDur(n.asleepMin)} · score ${sleepScore(n).total}`, checkLine(n)]; }
   };
   charts.timeline = new Chart($('#chart-timeline'), {
     type: 'bar', plugins: [targetLines],
-    data: { labels, datasets: [{ data: windows, backgroundColor: ns.map(n => nightRgba(n, onSchedule(n))),
-      hoverBackgroundColor: ns.map(n => nightHex(n, onSchedule(n))), borderRadius: 6, borderSkipped: false, maxBarThickness: thick }] },
+    data: { labels, datasets: [{ data: windows, backgroundColor: ns.map(n => nightRgba(n, goalHit(n))),
+      hoverBackgroundColor: ns.map(n => nightHex(n, goalHit(n))), borderRadius: 6, borderSkipped: false, maxBarThickness: thick }] },
     options: o1
   });
 
@@ -2450,14 +2475,14 @@ function renderCharts() {
   o2.plugins.tooltip.callbacks = {
     title: items => fmtDateLong(dates[items[0].dataIndex]),
     label: item => { const n = ns[item.dataIndex], diff = n.asleepMin - okFor(n);
-      const lines = [`Asleep ${fmtDur(n.asleepMin)}`, diff >= 0 ? `${fmtDur(diff)} over goal` : `${fmtDur(diff)} short of goal`];
+      const lines = [`Asleep ${fmtDur(n.asleepMin)}`, diff >= 0 ? `${fmtDur(diff)} over goal` : `${fmtDur(diff)} short of goal`, checkLine(n)];
       if (n.stages) lines.push(`Deep ${fmtDur(n.stages.deep)} · Core ${fmtDur(n.stages.core)} · REM ${fmtDur(n.stages.rem)}`);
       return lines; }
   };
   charts.duration = new Chart($('#chart-duration'), {
     type: 'bar', plugins: [targetLines],
-    data: { labels, datasets: [{ data: hours, backgroundColor: ns.map(n => nightRgba(n, n.asleepMin >= okFor(n))),
-      hoverBackgroundColor: ns.map(n => nightHex(n, n.asleepMin >= okFor(n))), borderRadius: 6, maxBarThickness: thick + 6 }] },
+    data: { labels, datasets: [{ data: hours, backgroundColor: ns.map(n => nightRgba(n, goalHit(n))),
+      hoverBackgroundColor: ns.map(n => nightHex(n, goalHit(n))), borderRadius: 6, maxBarThickness: thick + 6 }] },
     options: o2
   });
 }
@@ -2651,7 +2676,7 @@ function openNight(key) {
     const tol = S().toleranceMin, cls = v => Math.abs(v) <= tol ? 'text-sage' : 'text-warn';
     const rr = redReasons(n);
     sum.innerHTML = (rr.length ? `<div class="rounded-lg bg-red-500/15 border border-red-500/40 px-2.5 py-2 mb-3 text-xs text-red-200"><b class="text-red-300 uppercase tracking-wide">Red night</b> · ${rr.map(esc).join(' · ')}</div>` : '')
-      + `<div class="flex items-baseline justify-between"><span class="text-2xl font-bold ${rr.length ? 'text-red-400' : n.asleepMin >= okFor(n) ? 'text-sage' : 'text-warn'}">${fmtDur(n.asleepMin)}</span>
+      + `<div class="flex items-baseline justify-between"><span class="text-2xl font-bold ${rr.length ? 'text-red-400' : goalHit(n) ? 'text-sage' : 'text-warn'}">${fmtDur(n.asleepMin)}</span>
         <span class="text-xs text-muted">asleep · score <span class="font-semibold ${scoreTone(sleepScore(n).total, isRed(n)).cls}">${sleepScore(n).total}</span></span></div>
       <div class="flex justify-between text-xs mt-1"><span class="${cls(d.bed)}">Bed ${dev(d.bed)}</span><span class="${cls(d.wake)}">Wake ${dev(d.wake)}</span></div>
       ${n.stages ? `<div class="mt-3">${stageBar(n, 'h-2')}</div><div class="flex justify-between text-[11px] text-muted mt-1.5"><span>Deep ${fmtDur(n.stages.deep)}</span><span>Core ${fmtDur(n.stages.core)}</span><span>REM ${fmtDur(n.stages.rem)}</span><span>Awake ${fmtDur(n.stages.awake)}</span></div>` : ''}`;
@@ -2696,7 +2721,7 @@ function updateSettingsSummary() {
   $('#st-bedtime').textContent = fmtClock(t.bed);
   $('#st-bedtime-sub').textContent = `${fmtDur(t.inBed)} in bed = ${fmtDur(goalNow())} asleep + ${s.latencyMin}m to drift off · wind-down starts ${fmtClock(t.bed - s.windDownMin)}`
     + (t.off > 0 ? ` · final goal ${fmtClock(t.finalBed)}` : '');
-  $('#st-note').textContent = `Streak counts nights of ${fmtDur(goalNow() - s.bufferMin)} or more. "On schedule" means bed and wake both within ±${s.toleranceMin} minutes.`;
+  $('#st-note').textContent = `A night earns a check (and counts toward the streak) with ${fmtDur(goalNow() - s.bufferMin)} or more of sleep, no more than ${STREAK_LATE} minutes late to bed or out of bed, and no red night. Early is never penalised.`;
   const p = ladderProgress();
   $('#st-ladder-status').textContent = !l.on ? 'Off. Targets use the final bedtime.'
     : state.isSample ? 'Starts once you import or log your own nights.'
