@@ -629,10 +629,11 @@ const sortedNights = () => [...state.nights].sort((a, b) => (a.date < b.date ? -
 /** Counts toward the streak: asleep ≥ goal − buffer. */
 /** Counts toward the streak: enough sleep, and not a red night (a 9-hour lie-in until 10:00 still breaks it). */
 /* A night earns a check (and counts toward the streak) when all of these hold:
-   enough sleep (goal − buffer, 7h 45m), not more than STREAK_LATE minutes late to bed or out of bed
-   (early is always fine), and not a red night. */
-const STREAK_LATE = 60;
-const lateOk = n => { const d = deviations(n); return d.bed <= STREAK_LATE && d.wake <= STREAK_LATE; };
+   enough sleep (goal − buffer, 7h 45m), not more than BED_LATE minutes late to bed and not more than
+   WAKE_LATE minutes late out of bed (early is always fine), and not a red night.
+   The wake-up time is the anchor, so it gets the tighter limit: sleeping in can't buy back a late night. */
+const BED_LATE = 60, WAKE_LATE = 30;
+const lateOk = n => { const d = deviations(n); return d.bed <= BED_LATE && d.wake <= WAKE_LATE; };
 const goalHit = n => n.asleepMin >= goalFor(n) - S().bufferMin && lateOk(n) && !isRed(n);
 /** One verdict per night, used for every colour in the app: green = check, amber = no check, red = red night. */
 const verdict = n => isRed(n) ? 'red' : goalHit(n) ? 'check' : 'miss';
@@ -641,8 +642,8 @@ function noCheckWhy(n) {
   if (isRed(n)) return `red night: ${redReasons(n).join(', ')}`;
   const r = [], d = deviations(n), short = okFor(n) - n.asleepMin;
   if (short > 0) r.push(`${short < 60 ? `${short}m` : fmtDur(short)} short of ${fmtDur(okFor(n)).replace(' 00m', '')}`);
-  if (d.bed > STREAK_LATE) r.push(`${d.bed}m late to bed`);
-  if (d.wake > STREAK_LATE) r.push(`${d.wake}m late getting up`);
+  if (d.bed > BED_LATE) r.push(`${d.bed}m late to bed`);
+  if (d.wake > WAKE_LATE) r.push(`${d.wake}m late getting up`);
   return r.join(', ');
 }
 const checkLine = n => goalHit(n) ? '✓ Check' : `✕ No check: ${noCheckWhy(n)}`;
@@ -654,7 +655,7 @@ const onSchedule = n => { const d = deviations(n), tol = S().toleranceMin; retur
 /* Red ("catastrophic") nights: a night that harms the rhythm for days, not just a missed target.
    Limits follow the schedule, so they stay meaningful if the goal or wake time changes:
    asleep under goal − 2 h, or 2 h or more late, either to bed (after the final target bedtime) or out of bed.
-   Lateness steps through the app: 30 min free · over 60 min no check · 2 h red. */
+   Lateness steps through the app: 30 min free · over 60 min to bed or over 30 min out of bed: no check · 2 h red. */
 const RED = { shortMin: 120, bedLateMin: 120, wakeLateMin: 120 };
 const redLimits = () => { const t = targets();
   return { asleep: S().goalMin - RED.shortMin, bed: mod1440(t.finalBed + RED.bedLateMin), wake: mod1440(t.wake + RED.wakeLateMin) }; };
@@ -747,7 +748,7 @@ function tonight() {
   const mid = new Date(); mid.setHours(0, 0, 0, 0);
   let wake = mid.getTime() + t.wake * 60000; if (wake <= now) wake += DAY;
   const bed = wake - t.inBed * 60000;
-  return { now, wake, bed, dim: bed - s.windDownMin * 60000, deadline: Math.min(wake - (goalNow() - s.bufferMin + s.latencyMin) * 60000, bed + STREAK_LATE * 60000),
+  return { now, wake, bed, dim: bed - s.windDownMin * 60000, deadline: Math.min(wake - (goalNow() - s.bufferMin + s.latencyMin) * 60000, bed + BED_LATE * 60000),
            key: dateKey(new Date(wake)), prevKey: dateKey(new Date(wake - DAY)), prevWake: wake - DAY };
 }
 
@@ -1174,11 +1175,13 @@ R(69.8, 'good', c => !c.night && c.lad.active && c.lad.moved === c.L.date,
   c => `Step complete. Your new bedtime is ${c.bed}, 20 minutes earlier than before.\nYou hit the last step on ${c.lad.need} nights, so it's yours. The new one will feel slightly early for two or three evenings; that's the point. Final goal is ${c.lad.finalBed}, ${c.lad.off} minutes away.`);
 R(53.8, 'warn', c => !c.night && c.lad.active && c.lad.count >= 5 && c.lad.onTime <= 1,
   c => `You've been on the ${c.bed} step for ${c.lad.count} nights and hit it ${c.lad.onTime === 1 ? 'once' : 'zero times'}.\nThe step is only ${c.lad.step} minutes earlier than what you were already doing, so this isn't about ability. Something specific is happening at ${c.bed} each evening. Find out what it is and move that one thing earlier.`);
-/* — Enough sleep, but too late for a check (the 60-minute rule) — */
+/* — Enough sleep, but too late for a check (bed over 60 min late, or up over 30 min late) — */
 R(69.6, 'warn', c => !c.night && c.lateMiss && c.lost >= 1,
-  c => `${D(c.L.asleep)} of sleep, but your ${c.lost}-night streak still ended.\nThe streak asks for two things: enough sleep, and being no more than ${STREAK_LATE} minutes late to bed and out of bed. Last night you were ${c.L.bedDev > STREAK_LATE ? `${c.L.bedDev}m late to bed` : ''}${c.L.bedDev > STREAK_LATE && c.L.wakeDev > STREAK_LATE ? ' and ' : ''}${c.L.wakeDev > STREAK_LATE ? `${c.L.wakeDev}m late getting up` : ''}. Hours alone don't build a rhythm; the timing does.`);
+  c => `${D(c.L.asleep)} of sleep, but your ${c.lost}-night streak still ended.\nThe streak asks for two things: enough sleep, and good timing: no more than ${BED_LATE} minutes late to bed and no more than ${WAKE_LATE} minutes late getting up. Last night you were ${c.L.bedDev > BED_LATE ? `${c.L.bedDev}m late to bed` : ''}${c.L.bedDev > BED_LATE && c.L.wakeDev > WAKE_LATE ? ' and ' : ''}${c.L.wakeDev > WAKE_LATE ? `${c.L.wakeDev}m late getting up` : ''}. Hours alone don't build a rhythm; the timing does.`);
 R(54.9, 'warn', c => !c.night && c.lateMiss,
-  c => `Enough sleep (${D(c.L.asleep)}), but no check: you were ${c.L.bedDev > STREAK_LATE ? `${c.L.bedDev}m late to bed` : `${c.L.wakeDev}m late getting up`}. Within ${STREAK_LATE} minutes of ${c.L.bedDev > STREAK_LATE ? c.bed : c.wake} and the night would have counted.`);
+  c => c.L.bedDev > BED_LATE
+    ? `Enough sleep (${D(c.L.asleep)}), but no check: you were ${c.L.bedDev}m late to bed. Within ${BED_LATE} minutes of ${c.bed} and the night would have counted.`
+    : `Enough sleep (${D(c.L.asleep)}), but no check: you got up ${c.L.wakeDev}m late. The wake-up time is your anchor, so it only gets ${WAKE_LATE} minutes: up by ${fmtClock(targets().wake + WAKE_LATE)} and the night would have counted. Sleeping in can't make up for a late night; it moves your whole clock later.`);
 
 /* — Red nights — */
 R(99.8, 'warn', c => c.night && c.toRed <= 0 && c.hour < 6,
@@ -2721,7 +2724,7 @@ function updateSettingsSummary() {
   $('#st-bedtime').textContent = fmtClock(t.bed);
   $('#st-bedtime-sub').textContent = `${fmtDur(t.inBed)} in bed = ${fmtDur(goalNow())} asleep + ${s.latencyMin}m to drift off · wind-down starts ${fmtClock(t.bed - s.windDownMin)}`
     + (t.off > 0 ? ` · final goal ${fmtClock(t.finalBed)}` : '');
-  $('#st-note').textContent = `A night earns a check (and counts toward the streak) with ${fmtDur(goalNow() - s.bufferMin)} or more of sleep, no more than ${STREAK_LATE} minutes late to bed or out of bed, and no red night. Early is never penalised.`;
+  $('#st-note').textContent = `A night earns a check (and counts toward the streak) with ${fmtDur(goalNow() - s.bufferMin)} or more of sleep, no more than ${BED_LATE} minutes late to bed, no more than ${WAKE_LATE} minutes late out of bed, and no red night. Early is never penalised.`;
   const p = ladderProgress();
   $('#st-ladder-status').textContent = !l.on ? 'Off. Targets use the final bedtime.'
     : state.isSample ? 'Starts once you import or log your own nights.'
